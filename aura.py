@@ -53,9 +53,11 @@ class AuraApplication(Adw.Application):
 
         if len(args) > 1:
             if args[1] in ["-h", "--help"]:
-                print("Usage: aura [search-query] [--updates|-u] [--installed] [--detail <pkg>] [--install <pkg>]")
-                print("Aura Package Hub - Arch Linux & AUR Package Explorer")
+                print("Usage: aura [search-query] [--discover] [--updates|-u] [--installed] [--docker|-D] [--detail <pkg>] [--install <pkg>]")
+                print("Aura App Store - Minimal, Modern App Store tailored for Hyprland")
                 return 0
+            elif args[1] in ["--discover"]:
+                action = "discover"
             elif args[1] in ["-u", "--updates"]:
                 action = "updates"
             elif args[1] in ["--installed"]:
@@ -88,7 +90,13 @@ class AuraApplication(Adw.Application):
             self.window = AuraWindow(self, self.pm)
             self.window.connect("close-request", lambda w: self.quit())
 
-        if action == "updates":
+        if action == "discover":
+            self.window.back_btn.set_visible(False)
+            target = self.window.sidebar_buttons.get("discover")
+            if target:
+                target.set_active(True)
+            self.window._on_sidebar_channel_click("discover")
+        elif action == "updates":
             self.window.back_btn.set_visible(False)
             target = self.window.sidebar_buttons.get("updates")
             if target:

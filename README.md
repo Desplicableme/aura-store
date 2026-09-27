@@ -1,15 +1,16 @@
 <div align="center">
 
-# 🌌 Aura Package Hub
-### The Modern, Mac-Inspired Software Center for Arch Linux & AUR
+# 🌌 Aura App Store
+### A Minimal, Modern macOS-Inspired App Store tailored for Hyprland on Arch Linux
 
 [![Arch Linux](https://img.shields.io/badge/Arch_Linux-1793D1?style=for-the-badge&logo=arch-linux&logoColor=white)](https://archlinux.org)
+[![Hyprland](https://img.shields.io/badge/Hyprland-Wayland_Compositor-00c8ff?style=for-the-badge&logo=wayland&logoColor=white)](https://hyprland.org)
 [![GTK4](https://img.shields.io/badge/GTK4-libadwaita-4a90e2?style=for-the-badge&logo=gnome&logoColor=white)](https://gnome.pages.gitlab.gnome.org/libadwaita/)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/Docker-OCI_Sandbox-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=for-the-badge)](LICENSE)
 
-*An ultra-fast, visually stunning software hub designed for Arch Linux, CachyOS, and EndeavourOS. Features dual-tier Pacman + AUR searching, isolated native Docker application sandboxing, fluid iOS-style spring micro-interactions, and lifetime passwordless authorization.*
+*An ultra-fast, visually refined App Store designed exclusively for **Hyprland (Wayland)** on Arch Linux, CachyOS, and EndeavourOS. Features dual-tier Pacman + AUR search, isolated native Docker application sandboxing, fluid iOS-style spring micro-interactions, and lifetime passwordless authorization.*
 
 ---
 
@@ -27,7 +28,7 @@ Curated essential software, development suites, privacy tools, and media applica
 ---
 
 ### 🐳 Docker OCI Applications
-Run desktop software in sandboxed containers with zero host package pollution. Automatically generates desktop menu shortcuts.
+Run desktop software in sandboxed containers with zero host package pollution. Automatically generates desktop menu shortcuts and forwards Wayland/OpenGL hardware acceleration.
 
 ![Docker Applications](screenshots/docker.png)
 
@@ -65,6 +66,39 @@ Seamlessly adapts from narrow half-screen tiling layouts to wide 1080p/4K triple
 
 ---
 
+## 🪟 Purpose-Built for Hyprland
+
+Aura is currently designed and tuned specifically for the **Hyprland Wayland compositor**:
+
+- **Floating Centered Canvas**: Configured to launch as a smooth centered floating window (`1040x680`) with native Wayland decorations.
+- **No Decoration Clutter**: Redundant titlebars and maximize/minimize buttons are stripped in favor of a sleek, minimal macOS-inspired header.
+- **Glassmorphism & Opaque Rendering**: Built-in glass CSS styling with Hyprland `opaque` rule prevents blurry background conflicts.
+- **Quick Shortcut Toggle**: Bind to `SUPER + A` to toggle your software library instantaneously.
+
+### Hyprland Configuration
+
+Add this line to your `~/.config/hypr/hyprland.conf`:
+
+```ini
+# Include Aura window rules
+source = ~/.local/share/aura/data/hyprland-aura.conf
+```
+
+Or add the window rules and shortcut directly:
+
+```ini
+# Aura App Store - Window Rules & Shortcut
+windowrulev2 = float, class:^(io.github.aura)$
+windowrulev2 = center, class:^(io.github.aura)$
+windowrulev2 = size 1040 680, class:^(io.github.aura)$
+windowrulev2 = opaque, class:^(io.github.aura)$
+
+# Instant Launcher Shortcut (Super + A)
+bind = $mainMod, A, exec, aura
+```
+
+---
+
 ## ✨ Features
 
 - **⚡ Sub-Millisecond Dual-Tier Fuzzy Search**:
@@ -86,10 +120,6 @@ Seamlessly adapts from narrow half-screen tiling layouts to wide 1080p/4K triple
   - Configure once, never get prompted for sudo password during package installations again.
   - Encrypted local vault stored in `~/.aura_vault` (permissions `0600`) backed by a dedicated sudoers askpass integration (`/etc/sudoers.d/aura-pacman`).
 
-- **🪟 Hyprland & Tiling Window Manager Optimized**:
-  - Clean floating header without redundant title bars or minimize/maximize buttons that conflict with tiling window managers.
-  - Robust minimum-width enforcement (minimum 398px content width), eliminating window overflow warnings when snapped side-by-side on 1080p displays.
-
 - **📦 Rich Technical Specifications**:
   - View package architecture, download size, installed size, build packager, license, and interactive dependency chips that open their respective packages on click.
 
@@ -102,14 +132,14 @@ Seamlessly adapts from narrow half-screen tiling layouts to wide 1080p/4K triple
 Run this single command in your terminal to automatically download, configure dependencies, and install Aura:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Desplicableme/aura/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Desplicableme/aura-store/main/install.sh | bash
 ```
 
 Or clone manually:
 
 ```bash
-git clone https://github.com/Desplicableme/aura.git
-cd aura
+git clone https://github.com/Desplicableme/aura-store.git
+cd aura-store
 ./install.sh
 ```
 
@@ -128,8 +158,8 @@ yay -S aura-appstore-git
 Or build manually via `makepkg`:
 
 ```bash
-git clone https://github.com/Desplicableme/aura.git
-cd aura
+git clone https://github.com/Desplicableme/aura-store.git
+cd aura-store
 makepkg -si
 ```
 
@@ -139,7 +169,8 @@ makepkg -si
 
 | Component | Required Package | Notes |
 | :--- | :--- | :--- |
-| **Operating System** | Arch Linux / CachyOS / EndeavourOS / Manjaro | Any `pacman`-based Linux distribution |
+| **Compositor** | Hyprland (Wayland) | Tailored specifically for Hyprland |
+| **Operating System** | Arch Linux / CachyOS / EndeavourOS | Any `pacman`-based Linux distribution |
 | **Python** | `python >= 3.10` | Core programming language |
 | **GTK & Libadwaita** | `gtk4`, `libadwaita`, `python-gobject` | Modern graphical toolkit & design patterns |
 | **Package Utilities** | `pacman-contrib` | Provides `checkupdates` for update checks |
@@ -155,6 +186,7 @@ Aura supports deep command-line routing:
 ```bash
 # Launch default Discover view
 aura
+aura --discover
 
 # Launch directly with a search query
 aura "visual studio code"
@@ -186,7 +218,7 @@ aura --fullscreen
 ## 📂 Project Structure
 
 ```
-aura/
+aura-store/
 ├── aura.py                     # Main application entry point & CLI parser
 ├── aura_backend.py             # Pacman, Paru & Docker container managers
 ├── aura_ui.py                  # GTK4/Libadwaita interface & macOS CSS system
@@ -204,26 +236,6 @@ aura/
 │       ├── io.github.aura.svg  # Application icon
 │       └── docker-symbolic.svg # Custom Docker symbolic icon
 └── screenshots/                # Visual documentation assets
-```
-
----
-
-## 🪟 Hyprland Configuration
-
-To ensure Aura floats nicely and avoids background layer blur conflicts, add the following to your `~/.config/hypr/hyprland.conf`:
-
-```ini
-# Aura Package Hub Window Rules
-windowrulev2 = float, class:^(io.github.aura)$
-windowrulev2 = center, class:^(io.github.aura)$
-windowrulev2 = size 1040 680, class:^(io.github.aura)$
-windowrulev2 = opaque, class:^(io.github.aura)$
-```
-
-Or simply source the included configuration file:
-
-```ini
-source = ~/.local/share/aura/data/hyprland-aura.conf
 ```
 
 ---

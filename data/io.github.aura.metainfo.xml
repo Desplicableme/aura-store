@@ -4,19 +4,21 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
   <name>Aura</name>
-  <summary>Mac-inspired modern software hub and package explorer for Arch Linux</summary>
+  <summary>Mac-inspired modern App Store tailored exclusively for Hyprland on Arch Linux</summary>
+  <url type="homepage">https://github.com/Desplicableme/aura-store</url>
+  <url type="bugtracker">https://github.com/Desplicableme/aura-store/issues</url>
   <description>
     <p>
-      Aura is an ultra-fast, modern GTK4/libadwaita software center designed for Arch Linux,
-      CachyOS, and AUR users with an authentic macOS App Store aesthetic.
+      Aura is an ultra-fast, minimal GTK4/libadwaita App Store designed specifically for Hyprland
+      on Arch Linux and CachyOS, featuring an authentic macOS App Store aesthetic.
     </p>
     <p>Features:</p>
     <ul>
+      <li>Tailored specifically for Hyprland Wayland compositor with native floating rules</li>
       <li>Instant fuzzy search across official Pacman repositories and AUR via Paru</li>
       <li>Isolated OCI container sandbox using native Docker for desktop applications</li>
       <li>Lifetime passwordless mode with encrypted local credentials vault</li>
       <li>System updates manager with one-click batch upgrades</li>
-      <li>Native Wayland and Hyprland tiling window manager support</li>
       <li>Liquid 60FPS fluid spring animations and macOS micro-interactions</li>
     </ul>
   </description>

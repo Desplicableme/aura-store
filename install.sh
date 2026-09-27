@@ -20,17 +20,17 @@ echo "  / /| |/ / / / ___/ __ \`/       "
 echo " / ___ / /_/ / /  / /_/ /        "
 echo "/_/  |_\__,_/_/   \__,_/         "
 echo -e "${RESET}"
-echo -e "${BOLD}Aura Package Hub - Installer${RESET}\n"
+echo -e "${BOLD}Aura App Store - Installer (Hyprland / Arch Linux)${RESET}\n"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
 
 # Support running directly via: curl -fsSL ... | bash
 if [ -z "${SCRIPT_DIR}" ] || [ ! -f "${SCRIPT_DIR}/aura.py" ]; then
-    echo -e "${BLUE}==>${RESET} Downloading Aura Package Hub repository..."
+    echo -e "${BLUE}==>${RESET} Downloading Aura App Store repository..."
     TMP_DIR=$(mktemp -d)
     trap 'rm -rf "${TMP_DIR}"' EXIT
-    git clone --depth 1 https://github.com/Desplicableme/aura.git "${TMP_DIR}/aura"
-    cd "${TMP_DIR}/aura"
+    git clone --depth 1 https://github.com/Desplicableme/aura-store.git "${TMP_DIR}/aura-store"
+    cd "${TMP_DIR}/aura-store"
     exec ./install.sh "$@"
 fi
 INSTALL_DIR="${HOME}/.local/share/aura"
@@ -124,6 +124,13 @@ fi
 echo -e "\n${GREEN}${BOLD}✓ Aura has been successfully installed!${RESET}"
 echo -e "You can launch it anytime by running:"
 echo -e "  ${BOLD}aura${RESET} (or from your application launcher)\n"
+
+# Hyprland integration notice
+if [ -d "${HOME}/.config/hypr" ]; then
+    echo -e "${BLUE}${BOLD}🪟 Hyprland Tip:${RESET} To enable native floating rules and shortcut in Hyprland, add:"
+    echo -e "  ${BOLD}source = ~/.local/share/aura/data/hyprland-aura.conf${RESET}"
+    echo -e "to your ${BOLD}~/.config/hypr/hyprland.conf${RESET}\n"
+fi
 
 # Verify PATH
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then

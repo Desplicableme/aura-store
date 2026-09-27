@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Aura
-GenericName=App Store & Package Hub
-Comment=Mac-inspired modern software hub and package explorer for Arch Linux
+GenericName=App Store
+Comment=Mac-inspired modern App Store tailored for Hyprland on Arch Linux
 Exec=aura %U
 Icon=io.github.aura
 Terminal=false

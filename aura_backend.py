@@ -58,7 +58,7 @@ CURATED_CATEGORIES = [
             {"name": "code", "title": "Visual Studio Code", "desc": "Code editor and developer platform", "source": "pacman"},
             {"name": "neovim", "title": "Neovim", "desc": "Extensible high-speed text editor", "source": "pacman"},
             {"name": "git", "title": "Git", "desc": "Fast distributed version control", "source": "pacman"},
-            {"name": "docker", "title": "Docker", "desc": "Container platform for developers", "source": "pacman"},
+            {"name": "lazygit", "title": "LazyGit", "desc": "Simple terminal UI for git commands", "source": "pacman"},
             {"name": "alacritty", "title": "Alacritty", "desc": "Fast GPU-accelerated terminal", "source": "pacman"},
             {"name": "kitty", "title": "Kitty", "desc": "Feature-rich modern terminal", "source": "pacman"},
         ]

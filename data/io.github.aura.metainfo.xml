@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.aura</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Aura</name>
+  <summary>Mac-inspired modern software hub and package explorer for Arch Linux</summary>
+  <description>
+    <p>
+      Aura is an ultra-fast, modern GTK4/libadwaita software center designed for Arch Linux,
+      CachyOS, and AUR users with an authentic macOS App Store aesthetic.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Instant fuzzy search across official Pacman repositories and AUR via Paru</li>
+      <li>Isolated OCI container sandbox using native Docker for desktop applications</li>
+      <li>Lifetime passwordless mode with encrypted local credentials vault</li>
+      <li>System updates manager with one-click batch upgrades</li>
+      <li>Native Wayland and Hyprland tiling window manager support</li>
+      <li>Liquid 60FPS fluid spring animations and macOS micro-interactions</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.aura.desktop</launchable>
+  <categories>
+    <category>System</category>
+    <category>PackageManager</category>
+  </categories>
+  <provides>
+    <binary>aura</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+</component>

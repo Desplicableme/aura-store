@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- macOS Squircle Clip Path -->
+    <clipPath id="squircleClip">
+      <rect x="36" y="36" width="440" height="440" rx="105" ry="105"/>
+    </clipPath>
+
+    <!-- Background Gradient (Deep Space Gray Glass) -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#242838"/>
+      <stop offset="40%" stop-color="#141724"/>
+      <stop offset="100%" stop-color="#0c0e17"/>
+    </linearGradient>
+
+    <!-- Apple Electric Blue Gradient -->
+    <linearGradient id="appleBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="50%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+
+    <!-- Violet / Neon Purple Gradient -->
+    <linearGradient id="neonPurple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c084fc"/>
+      <stop offset="50%" stop-color="#9333ea"/>
+      <stop offset="100%" stop-color="#7e22ce"/>
+    </linearGradient>
+
+    <!-- Holographic Cyan Accent -->
+    <linearGradient id="holoCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+
+    <!-- Specular Highlight for Glass Border -->
+    <linearGradient id="glassBorder" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="40%" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.03"/>
+    </linearGradient>
+
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="16" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <filter id="appShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="20" stdDeviation="28" flood-color="#000000" flood-opacity="0.6"/>
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#2563eb" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <!-- Shadow & Main Squircle Base -->
+  <g filter="url(#appShadow)">
+    <rect x="36" y="36" width="440" height="440" rx="105" ry="105" fill="url(#bgGrad)"/>
+  </g>
+
+  <!-- Clipped Interior with Lighting -->
+  <g clip-path="url(#squircleClip)">
+    <!-- Radial Ambient Glow -->
+    <circle cx="256" cy="180" r="200" fill="#2563eb" opacity="0.12" filter="url(#softGlow)"/>
+    <circle cx="340" cy="320" r="160" fill="#9333ea" opacity="0.10" filter="url(#softGlow)"/>
+
+    <!-- Subtle Diagonal Sheen Line -->
+    <path d="M 0,0 L 512,512" stroke="url(#glassBorder)" stroke-width="1.5" opacity="0.15"/>
+
+    <!-- Apple-style Minimalist Iconic Emblem -->
+    <!-- Layer 1: Left Facet (Electric Cyan-Blue) -->
+    <path d="M 256,120 L 155,178 L 155,294 L 256,236 Z" 
+          fill="url(#holoCyan)" opacity="0.9" filter="url(#softGlow)"/>
+
+    <!-- Layer 2: Right Facet (Neon Purple-Violet) -->
+    <path d="M 256,120 L 357,178 L 357,294 L 256,236 Z" 
+          fill="url(#neonPurple)" opacity="0.95" filter="url(#softGlow)"/>
+
+    <!-- Layer 3: Bottom Intersecting Floating Plate (Apple Royal Blue) -->
+    <path d="M 256,242 L 357,300 L 256,358 L 155,300 Z" 
+          fill="url(#appleBlue)" opacity="0.98"/>
+
+    <!-- Arch Peak Accent Glow in Center -->
+    <path d="M 256,155 L 298,220 L 214,220 Z" 
+          fill="#ffffff" opacity="0.85" filter="url(#softGlow)"/>
+    
+    <!-- Central Pure White Spark -->
+    <circle cx="256" cy="226" r="6" fill="#ffffff" filter="url(#softGlow)"/>
+  </g>
+
+  <!-- Frosted Glass Rim Border -->
+  <rect x="37" y="37" width="438" height="438" rx="104" ry="104" 
+        fill="none" stroke="url(#glassBorder)" stroke-width="2.5"/>
+</svg>

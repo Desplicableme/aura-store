@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <g fill="currentColor">
+    <!-- Top Row Container (1 block) -->
+    <rect x="7.2" y="2.0" width="1.8" height="1.6" rx="0.3"/>
+    
+    <!-- Middle Row Containers (3 blocks) -->
+    <rect x="5.0" y="4.0" width="1.8" height="1.6" rx="0.3"/>
+    <rect x="7.2" y="4.0" width="1.8" height="1.6" rx="0.3"/>
+    <rect x="9.4" y="4.0" width="1.8" height="1.6" rx="0.3"/>
+    
+    <!-- Bottom Row Containers (4 blocks) -->
+    <rect x="2.8" y="6.0" width="1.8" height="1.6" rx="0.3"/>
+    <rect x="5.0" y="6.0" width="1.8" height="1.6" rx="0.3"/>
+    <rect x="7.2" y="6.0" width="1.8" height="1.6" rx="0.3"/>
+    <rect x="9.4" y="6.0" width="1.8" height="1.6" rx="0.3"/>
+    
+    <!-- Whale Body (Centered from x=0.8 to x=15.2, y=8.0 to 14.0) -->
+    <path d="M15.2 8.6c-.3-.2-.7-.4-1.2-.4-.2 0-.4 0-.6.1-.2-.8-.8-1.5-1.7-1.8v1c.5.2.8.6.9 1.1-.3.1-.7.2-1.1.3-.3.1-.7.1-1.1.1H1.6c-.4 0-.8.3-.8.7 0 1.1.2 2.2.8 3.1.6 1 1.6 1.7 2.8 2 1 .2 2.1.3 3.4.3.7 0 1.4 0 2.1-.2 1.8-.3 3.4-1.1 4.5-2.3 1-1.1 1.7-2.5 2-4 .4.1.7.1 1 0 .2 0 .4-.1.6-.2-.3-.2-.5-.4-.8-.6z"/>
+  </g>
+</svg>

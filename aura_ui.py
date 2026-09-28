@@ -755,6 +755,22 @@ flowboxchild {
     box-shadow: 0 2px 6px rgba(255, 159, 10, 0.3);
 }
 
+.mac-btn-get:disabled {
+    opacity: 0.85;
+    box-shadow: none;
+}
+
+.mac-btn-update:disabled,
+.mac-btn-update-all:disabled {
+    opacity: 0.45;
+    box-shadow: none;
+}
+
+.mac-btn-installed:disabled {
+    opacity: 0.85;
+    box-shadow: none;
+}
+
 .mac-btn-uninstall {
     background: linear-gradient(180deg, #ff453a, #d70015);
     color: #ffffff;
@@ -1221,6 +1237,8 @@ flowboxchild {
     font-size: 13px;
     font-weight: 600;
     color: #ffffff;
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
 }
 
 .mac-progress-percent {
@@ -1261,6 +1279,8 @@ progressbar.mac-capsule-progress > trough > progress {
     font-size: 11.5px;
     font-weight: 600;
     color: #5ac8fa;
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
     transition: all 200ms ease;
 }
 .mac-header-progress-pill:hover {
@@ -1718,6 +1738,10 @@ class AuraWindow(Adw.ApplicationWindow):
         self._cached_installed_apps_flow: Optional[Gtk.FlowBox] = None
         self._registered_grids: List[Gtk.FlowBox] = []
         self._active_cols: int = 2
+
+        # Updates View Button and Card Registry for realtime status tracking
+        self._updates_buttons: Dict[str, Gtk.Button] = {}
+        self._updates_cards: Dict[str, Gtk.Box] = {}
 
         # Smooth Progress and Animation State
         self._progress_anim_id: Optional[int] = None
@@ -2613,14 +2637,30 @@ class AuraWindow(Adw.ApplicationWindow):
         if is_updating:
             self.updates_progress_box.set_visible(True)
             self.btn_update_all.set_sensitive(False)
-            prog = float(active_tx.get("progress", 0.0))
-            msg = str(active_tx.get("status", "Updating packages..."))
+            prog = float(active_tx.get("progress", self._current_progress or 0.05))
+            msg = str(active_tx.get("status_msg") or active_tx.get("status") or "Updating packages...")
             self.updates_progress_bar.set_fraction(prog)
             self.updates_progress_lbl.set_text(msg)
             self.updates_percent_label.set_text(f"{int(prog * 100)}%")
+            self._target_progress = max(self._target_progress, prog)
+            self._current_progress = prog
+            self._progress_target_view = "updates"
+            self._progress_action = active_tx.get("action", "update")
+            tx_pkg = active_tx.get("pkg_name", "system")
+            self._progress_pkg_name = tx_pkg
+            self._progress_display_name = get_app_display_name(tx_pkg) if tx_pkg not in ["system", "--all", "all", ""] else "System Packages"
+            if hasattr(self, "header_progress_pill"):
+                self.header_progress_pill.set_visible(True)
+                pill_t = "Updating System" if tx_pkg in ["system", "--all", "all", ""] else f"Updating {self._progress_display_name}"
+                self.header_progress_label.set_text(f"⟳ {pill_t} • {int(prog * 100)}%")
+            if not getattr(self, "_progress_anim_id", None) and prog < 1.0:
+                self._progress_anim_id = GLib.timeout_add(16, self._on_progress_lerp_tick)
+
             self._populate_updates(self.pm.upgradable_list)
-            self.btn_update_all.set_sensitive(False)
+            self._sync_updates_ui_state()
         else:
+            if not getattr(self, "_progress_auto_hide_id", None):
+                self.updates_progress_box.set_visible(False)
             if not self.pm.updates_checked:
                 self.updates_count_label.set_text("Checking for updates...")
                 self.updates_count_label.add_css_class("mac-loading-shimmer")
@@ -2636,7 +2676,14 @@ class AuraWindow(Adw.ApplicationWindow):
     def _populate_updates(self, upgrades: List[Dict[str, str]]):
         self.updates_count_label.remove_css_class("mac-loading-shimmer")
         self.updates_flow_box.remove_all()
+        self._updates_buttons.clear()
+        self._updates_cards.clear()
         count = len(upgrades)
+
+        active_tx = self.pm.get_active_transaction() if hasattr(self.pm, "get_active_transaction") else None
+        is_updating = bool(active_tx and isinstance(active_tx, dict) and active_tx.get("action") in ["update", "upgrade"])
+        completed_pkgs = [p.strip().lower() for p in active_tx.get("completed_pkgs", [])] if is_updating else []
+
         if count == 0:
             self.updates_count_label.set_text("System is up to date")
             self.btn_update_all.set_sensitive(False)
@@ -2646,22 +2693,109 @@ class AuraWindow(Adw.ApplicationWindow):
             empty_lbl.set_margin_top(40)
             self.updates_flow_box.append(empty_lbl)
         else:
-            self.updates_count_label.set_text(f"{count} Updates Available")
-            self.btn_update_all.set_sensitive(True)
-            self.sidebar_updates_badge.set_text(str(count))
-            self.sidebar_updates_badge.set_visible(True)
+            comp_count = sum(1 for u in upgrades if u.get("name", "").strip().lower() in completed_pkgs)
+            rem_count = max(0, count - comp_count)
+
+            if is_updating and comp_count > 0:
+                self.updates_count_label.set_text(f"{rem_count} Updates Remaining ({comp_count} completed)")
+                self.sidebar_updates_badge.set_text(str(rem_count) if rem_count > 0 else "")
+            else:
+                self.updates_count_label.set_text(f"{count} Updates Available")
+                self.sidebar_updates_badge.set_text(str(count))
+
+            self.sidebar_updates_badge.set_visible(rem_count > 0 if is_updating else True)
+            self.btn_update_all.set_sensitive(not is_updating)
 
             for u in upgrades:
-                pkg = self.pm.packages.get(u["name"], {})
+                name = u["name"]
+                pkg = self.pm.packages.get(name, {})
                 desc = pkg.get("desc", "System software update")
                 card = self._create_mac_app_row(
-                    u["name"],
+                    name,
                     desc,
                     "pacman",
                     is_installed_view=True,
                     update_info={"old_ver": u["old_ver"], "new_ver": u["new_ver"]}
                 )
+                self._updates_cards[name] = card
+                if hasattr(card, "_action_btn"):
+                    self._updates_buttons[name] = card._action_btn
                 self.updates_flow_box.append(card)
+
+            if is_updating:
+                self._sync_updates_ui_state()
+
+    def _sync_updates_ui_state(self):
+        """Synchronize updates view buttons, labels, and progress box to the current transaction state."""
+        active_tx = self.pm.get_active_transaction() if hasattr(self.pm, "get_active_transaction") else None
+        is_active_update = False
+        curr_pkg = None
+        completed_pkgs = []
+
+        if active_tx and isinstance(active_tx, dict):
+            action = active_tx.get("action", "")
+            if action in ["update", "upgrade"]:
+                is_active_update = True
+                curr_pkg = active_tx.get("current_pkg") or active_tx.get("pkg_name")
+                completed_pkgs = active_tx.get("completed_pkgs", [])
+        elif getattr(self, "_progress_action", None) in ["update", "upgrade"] and getattr(self, "_progress_anim_id", None):
+            is_active_update = True
+            curr_pkg = getattr(self, "_progress_pkg_name", None)
+
+        if not is_active_update:
+            if hasattr(self, "btn_update_all"):
+                upgrades_count = len(self.pm.upgradable_list)
+                self.btn_update_all.set_sensitive(upgrades_count > 0)
+            for pkg_name, btn in self._updates_buttons.items():
+                btn.set_sensitive(True)
+                btn.set_label("UPDATE")
+                btn.remove_css_class("mac-btn-get")
+                btn.remove_css_class("mac-btn-installed")
+                if not btn.has_css_class("mac-btn-update"):
+                    btn.add_css_class("mac-btn-update")
+            return
+
+        # An update transaction is active
+        if hasattr(self, "btn_update_all"):
+            self.btn_update_all.set_sensitive(False)
+
+        curr_norm = curr_pkg.strip().lower() if curr_pkg and curr_pkg not in ["system", "--all", "all", ""] else None
+        completed_norm = {p.strip().lower() for p in completed_pkgs if p}
+
+        # Update remaining count label if updating all
+        if hasattr(self, "updates_count_label") and len(self._updates_buttons) > 0:
+            total_count = len(self._updates_buttons)
+            comp_count = sum(1 for name in self._updates_buttons if name.lower() in completed_norm)
+            rem_count = max(0, total_count - comp_count)
+            if comp_count > 0:
+                self.updates_count_label.set_text(f"{rem_count} Updates Remaining ({comp_count} completed)")
+                if hasattr(self, "sidebar_updates_badge"):
+                    self.sidebar_updates_badge.set_text(str(rem_count) if rem_count > 0 else "")
+                    self.sidebar_updates_badge.set_visible(rem_count > 0)
+
+        for pkg_name, btn in self._updates_buttons.items():
+            p_lower = pkg_name.strip().lower()
+            if curr_norm and p_lower == curr_norm:
+                btn.set_label("UPDATING...")
+                btn.set_sensitive(False)
+                btn.remove_css_class("mac-btn-update")
+                btn.remove_css_class("mac-btn-installed")
+                if not btn.has_css_class("mac-btn-get"):
+                    btn.add_css_class("mac-btn-get")
+            elif p_lower in completed_norm:
+                btn.set_label("UPDATED")
+                btn.set_sensitive(False)
+                btn.remove_css_class("mac-btn-update")
+                btn.remove_css_class("mac-btn-get")
+                if not btn.has_css_class("mac-btn-installed"):
+                    btn.add_css_class("mac-btn-installed")
+            else:
+                btn.set_label("UPDATE")
+                btn.set_sensitive(False)
+                btn.remove_css_class("mac-btn-get")
+                btn.remove_css_class("mac-btn-installed")
+                if not btn.has_css_class("mac-btn-update"):
+                    btn.add_css_class("mac-btn-update")
 
     # =========================================================================
     # Page 4: Installed View (Pre-cached Instant 0ms Load)
@@ -3497,19 +3631,40 @@ class AuraWindow(Adw.ApplicationWindow):
 
         card.append(vbox)
 
-        # 3. Action Pill Button (GET / OPEN / INSTALLED / UPDATE / INSTALLING)
+        # 3. Action Pill Button (GET / OPEN / INSTALLED / UPDATE / UPDATING... / INSTALLING)
         is_inst = is_installed_view or self.pm.is_installed(name)
         has_desktop = is_installed_view or (is_inst and bool(self.pm.detect_desktop_entry(name)))
 
-        if hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name):
-            action_btn = Gtk.Button(label="INSTALLING...")
+        if update_info:
+            active_tx = self.pm.get_active_transaction() if hasattr(self.pm, "get_active_transaction") else None
+            is_updating = bool(active_tx and isinstance(active_tx, dict) and active_tx.get("action") in ["update", "upgrade"])
+            curr_pkg = (active_tx.get("current_pkg") or active_tx.get("pkg_name") or "").strip().lower() if is_updating else ""
+            completed_pkgs = [p.strip().lower() for p in active_tx.get("completed_pkgs", [])] if is_updating else []
+            name_lower = name.strip().lower()
+
+            if is_updating and curr_pkg and name_lower == curr_pkg:
+                action_btn = Gtk.Button(label="UPDATING...")
+                action_btn.add_css_class("mac-btn-get")
+                action_btn.set_sensitive(False)
+            elif is_updating and name_lower in completed_pkgs:
+                action_btn = Gtk.Button(label="UPDATED")
+                action_btn.add_css_class("mac-btn-installed")
+                action_btn.set_sensitive(False)
+            elif is_updating:
+                action_btn = Gtk.Button(label="UPDATE")
+                action_btn.add_css_class("mac-btn-update")
+                action_btn.set_sensitive(False)
+            else:
+                action_btn = Gtk.Button(label="UPDATE")
+                action_btn.add_css_class("mac-btn-update")
+                src = update_info.get("source", source)
+                action_btn.connect("clicked", lambda b, n=name, s=src: self._update_single_package(n, s))
+        elif hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name):
+            active_tx = self.pm.get_active_transaction() if hasattr(self.pm, "get_active_transaction") else None
+            is_up = bool(active_tx and isinstance(active_tx, dict) and active_tx.get("action") in ["update", "upgrade"])
+            action_btn = Gtk.Button(label="UPDATING..." if is_up else "INSTALLING...")
             action_btn.add_css_class("mac-btn-get")
             action_btn.set_sensitive(False)
-        elif update_info:
-            action_btn = Gtk.Button(label="UPDATE")
-            action_btn.add_css_class("mac-btn-update")
-            src = update_info.get("source", source)
-            action_btn.connect("clicked", lambda b, n=name, s=src: self._update_single_package(n, s))
         elif is_inst:
             if has_desktop:
                 action_btn = Gtk.Button(label="OPEN")
@@ -3530,6 +3685,10 @@ class AuraWindow(Adw.ApplicationWindow):
         action_btn.set_vexpand(False)
         action_btn.set_size_request(88, 32)
         card.append(action_btn)
+
+        card._action_btn = action_btn
+        card._pkg_name = name
+        card._update_info = update_info
 
         # Card Gesture Click opens full-page inspector
         gesture = Gtk.GestureClick()
@@ -3936,6 +4095,10 @@ class AuraWindow(Adw.ApplicationWindow):
             # Ensure tick ticker is running
             if not getattr(self, "_progress_anim_id", None) and self._current_progress < 1.0:
                 self._progress_anim_id = GLib.timeout_add(16, self._on_progress_lerp_tick)
+
+            # Sync card buttons and badges during updates
+            if self._progress_target_view == "updates" or (hasattr(self, "main_stack") and self.main_stack.get_visible_child_name() == "updates"):
+                self._sync_updates_ui_state()
         GLib.idle_add(_apply)
 
     def _on_progress_lerp_tick(self) -> bool:
@@ -4120,6 +4283,23 @@ class AuraWindow(Adw.ApplicationWindow):
 
     def _update_single_package(self, pkg_name: str, source: str = "pacman"):
         disp = get_app_display_name(pkg_name)
+
+        # 1. Immediately set that specific package's button to UPDATING... (sensitive=False)
+        btn = self._updates_buttons.get(pkg_name)
+        if btn:
+            btn.set_label("UPDATING...")
+            btn.remove_css_class("mac-btn-update")
+            btn.remove_css_class("mac-btn-installed")
+            btn.add_css_class("mac-btn-get")
+            btn.set_sensitive(False)
+
+        # 2. Disable other UPDATE buttons and UPDATE ALL button while transaction is active
+        for other_name, other_btn in self._updates_buttons.items():
+            if other_name != pkg_name:
+                other_btn.set_sensitive(False)
+        if hasattr(self, "btn_update_all"):
+            self.btn_update_all.set_sensitive(False)
+
         self._start_smooth_progress("update", pkg_name, display_name=disp, source=source, target_view="updates")
 
         def _on_prog(frac: float, msg: str):
@@ -4142,11 +4322,20 @@ class AuraWindow(Adw.ApplicationWindow):
                     self._populate_updates(self.pm.upgradable_list)
                 else:
                     self.show_toast(f"Update failed for {disp}: {err[:50]}")
+                    self._sync_updates_ui_state()
             GLib.idle_add(_ui)
 
         self.pm.execute_background_action("update", pkg_name, source, _on_prog, _on_done)
 
     def _update_all_packages(self):
+        # 1. Immediately disable UPDATE ALL button
+        if hasattr(self, "btn_update_all"):
+            self.btn_update_all.set_sensitive(False)
+
+        # 2. Disable other package cards in the list to prevent conflicting parallel pacman locks
+        for btn in self._updates_buttons.values():
+            btn.set_sensitive(False)
+
         self._start_smooth_progress("update", "system", display_name="System Packages", source="pacman", target_view="updates")
 
         def _on_prog(frac: float, msg: str):
@@ -4154,7 +4343,6 @@ class AuraWindow(Adw.ApplicationWindow):
 
         def _on_done(ok: bool, action: str, name: str, err: str):
             def _ui():
-                self.btn_update_all.set_sensitive(True)
                 self._finish_smooth_progress(ok, action, name, err)
                 if ok:
                     self.show_toast("All packages updated successfully!")
@@ -4169,6 +4357,9 @@ class AuraWindow(Adw.ApplicationWindow):
                     self._populate_updates([])
                 else:
                     self.show_toast(f"System update error: {err[:50]}")
+                    if hasattr(self, "btn_update_all"):
+                        self.btn_update_all.set_sensitive(True)
+                    self._sync_updates_ui_state()
             GLib.idle_add(_ui)
 
         self.pm.execute_background_action("update", "system", "pacman", _on_prog, _on_done)

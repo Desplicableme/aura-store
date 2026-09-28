@@ -1048,6 +1048,12 @@ APP_DISPLAY_NAMES: Dict[str, str] = {
     "postman": "Postman",
     "rust": "Rust & Cargo",
     "go": "Go",
+    "qtengine": "QtEngine",
+    "quickshell": "Quickshell",
+    "quickshell-git": "Quickshell",
+    "antigravity": "Antigravity",
+    "antigravity-cli": "Antigravity CLI",
+    "spicetify-marketplace-bin": "Spicetify Marketplace",
     "dbeaver": "DBeaver",
     "pavucontrol": "Volume Control",
     "joplin-desktop": "Joplin",
@@ -1648,6 +1654,245 @@ def fuzzy_score(query: str, target: str, desc: str = "") -> int:
     return 0
 
 
+ANSI_ESCAPE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+
+class PacmanProgressParser:
+    """
+    Parser for pacman and paru stdout streams with monotonic progress calculation,
+    package-aware stage tracking, and post-transaction hook protection.
+    """
+    INSTALL_REGEX = re.compile(
+        r'\((\d+)/(\d+)\)\s+(?:upgrading|installing|reinstalling|downgrading|removing)\s+([a-zA-Z0-9_\-\.\+]+)',
+        re.IGNORECASE
+    )
+    PKG_TAR_REGEX = re.compile(
+        r'([a-zA-Z0-9@_+][a-zA-Z0-9@_\.\+-]*?)-[0-9][a-zA-Z0-9_\.\+:]*-[0-9]+\.pkg\.tar',
+        re.IGNORECASE
+    )
+    PKG_TAR_SIMPLE = re.compile(
+        r'([a-zA-Z0-9@_+][a-zA-Z0-9@_\.\+-]*?)\.pkg\.tar',
+        re.IGNORECASE
+    )
+    DOWNLOADING_REGEX = re.compile(
+        r'downloading\s+([a-zA-Z0-9@_+][a-zA-Z0-9@_\.\+-]*)',
+        re.IGNORECASE
+    )
+    INDEX_REGEX = re.compile(r'\((\d+)/(\d+)\)')
+
+    def __init__(self, action: str = "update", target_pkg: str = "", is_system_upgrade: bool = False, upgradable_pkgs: Optional[Set[str]] = None):
+        self.action = action.lower()
+        self.is_system_upgrade = is_system_upgrade or (target_pkg in ["system", "--all", "all", ""] or not target_pkg)
+        self.target_pkg = ("" if self.is_system_upgrade else target_pkg).strip().lower()
+        self.upgradable_pkgs = {p.strip().lower() for p in upgradable_pkgs} if upgradable_pkgs else set()
+
+        target_name = self.target_pkg
+        self.target_disp = (
+            APP_DISPLAY_NAMES.get(target_name, APP_DISPLAY_NAMES.get(target_name.lower(), target_name.replace('-', ' ').title()))
+            if target_name else "System"
+        )
+
+        self.total_packages = max(1, len(self.upgradable_pkgs)) if self.upgradable_pkgs else 1
+        self.current_idx = 0
+        self.current_pkg: Optional[str] = self.target_pkg if self.target_pkg else None
+        self.downloaded_pkgs: Set[str] = set()
+        self.in_post_hooks = False
+        self.last_progress = 0.06
+        self.error_lines: List[str] = []
+
+    def get_display_name(self, pkg: str) -> str:
+        clean = pkg.strip()
+        return APP_DISPLAY_NAMES.get(clean, APP_DISPLAY_NAMES.get(clean.lower(), clean.replace('-', ' ').title()))
+
+    def get_action_verb(self, matched_verb: Optional[str] = None) -> str:
+        if matched_verb:
+            mv = matched_verb.lower()
+            if "remov" in mv or self.action == "remove":
+                return "Removing"
+            if "install" in mv and self.action == "install":
+                return "Installing"
+            return "Updating"
+        if self.action == "remove":
+            return "Removing"
+        elif self.action == "install":
+            return "Installing"
+        return "Updating"
+
+    def process_line(self, line: str) -> Optional[Tuple[float, str, Optional[str], Optional[int], Optional[int]]]:
+        """
+        Process a single line of pacman/paru stdout.
+        Returns tuple: (progress_frac, status_msg, current_pkg, current_idx, total_packages)
+        or None if no state update for this line.
+        """
+        clean = ANSI_ESCAPE.sub('', line).strip()
+        if not clean:
+            return None
+        l_lower = clean.lower()
+
+        if "error:" in l_lower or "failed" in l_lower:
+            self.error_lines.append(clean)
+
+        # Update total packages if pacman outputs Packages (N)
+        pkg_match = re.search(r'packages\s*\(\s*(\d+)\s*\)', l_lower)
+        if pkg_match:
+            self.total_packages = max(self.total_packages, int(pkg_match.group(1)))
+
+        # 1. Post-transaction hooks detection
+        if "post-transaction hooks" in l_lower or "running post-transaction" in l_lower:
+            self.in_post_hooks = True
+            prog = max(self.last_progress, 0.90)
+            self.last_progress = prog
+            return (prog, "Running post-transaction hooks...", self.current_pkg, self.current_idx, self.total_packages)
+
+        # 2. While in post-transaction hooks:
+        if self.in_post_hooks:
+            if any(k in l_lower for k in ["desktop", "icon", "mime", "font", "systemd", "system", "conditionneedsupdate"]):
+                h_match = self.INDEX_REGEX.search(clean)
+                if h_match:
+                    h_cur = int(h_match.group(1))
+                    h_tot = int(h_match.group(2))
+                    hook_stage = round(min(0.96, 0.92 + (h_cur / max(1, h_tot)) * 0.04), 4)
+                else:
+                    hook_stage = round(min(0.96, max(0.92, self.last_progress + 0.01)), 4)
+                prog = max(self.last_progress, hook_stage)
+                self.last_progress = prog
+                return (prog, "Finalizing desktop & system environment...", self.current_pkg, self.current_idx, self.total_packages)
+            return None
+
+        # 3. Installation / Upgrade / Removal line parsing
+        inst_match = self.INSTALL_REGEX.search(clean)
+        if inst_match:
+            cur_idx = int(inst_match.group(1))
+            tot_idx = int(inst_match.group(2))
+            p_name = inst_match.group(3).strip()
+
+            self.total_packages = max(self.total_packages, tot_idx)
+            self.current_idx = cur_idx
+            self.current_pkg = p_name
+
+            disp = self.get_display_name(p_name)
+            verb = self.get_action_verb()
+
+            inst_stage = round(min(0.88, 0.28 + (cur_idx / max(1, tot_idx)) * 0.60), 4)
+            prog = max(self.last_progress, inst_stage)
+            self.last_progress = prog
+
+            p_clean = p_name.strip().lower()
+            is_dep = False
+            if self.upgradable_pkgs:
+                is_dep = (p_clean not in self.upgradable_pkgs)
+            elif self.target_pkg:
+                target_clean = self.target_pkg.lower()
+                is_target = (
+                    p_clean == target_clean
+                    or p_clean == target_clean.replace("-bin", "")
+                    or target_clean == p_clean.replace("-bin", "")
+                    or p_clean == target_clean.replace("-git", "")
+                    or target_clean == p_clean.replace("-git", "")
+                )
+                is_dep = not is_target
+
+            if is_dep:
+                msg = f"{verb} dependency {disp} ({cur_idx} of {tot_idx})..."
+            elif self.is_system_upgrade or not self.target_pkg:
+                msg = f"{verb} {disp} ({cur_idx} of {tot_idx})..."
+            else:
+                if tot_idx > 1:
+                    msg = f"{verb} {disp} ({cur_idx} of {tot_idx})..."
+                else:
+                    msg = f"{verb} {disp}..."
+
+            return (prog, msg, p_name, cur_idx, tot_idx)
+
+        # 4. Dependency resolution & keyring / integrity / disk space
+        if "resolving dependencies" in l_lower or "calculating dependencies" in l_lower:
+            prog = max(self.last_progress, 0.07)
+            self.last_progress = prog
+            return (prog, "Resolving package dependencies...", self.current_pkg, self.current_idx, self.total_packages)
+
+        if (
+            "checking keyring" in l_lower
+            or "checking keys in keyring" in l_lower
+            or "package integrity" in l_lower
+            or "verifying package integrity" in l_lower
+            or "loading package files" in l_lower
+        ):
+            prog = max(self.last_progress, 0.27)
+            self.last_progress = prog
+            return (prog, "Checking package integrity & keyring...", self.current_pkg, self.current_idx, self.total_packages)
+
+        if (
+            "looking for conflicting" in l_lower
+            or "checking for conflicting" in l_lower
+            or "file conflicts" in l_lower
+            or "available disk space" in l_lower
+            or "verifying disk space" in l_lower
+        ):
+            prog = max(self.last_progress, 0.28)
+            self.last_progress = prog
+            return (prog, "Verifying disk space & conflicts...", self.current_pkg, self.current_idx, self.total_packages)
+
+        if "processing package changes" in l_lower:
+            prog = max(self.last_progress, 0.28)
+            self.last_progress = prog
+            return (prog, "Applying package changes...", self.current_pkg, self.current_idx, self.total_packages)
+
+        # 5. Download phase
+        if "retrieving packages" in l_lower or "downloading" in l_lower or ".pkg.tar." in l_lower:
+            idx_match = self.INDEX_REGEX.search(clean)
+            if idx_match:
+                self.total_packages = max(self.total_packages, int(idx_match.group(2)))
+
+            dl_pkg = None
+            pkg_tar_m = self.PKG_TAR_REGEX.search(clean)
+            if pkg_tar_m:
+                dl_pkg = pkg_tar_m.group(1).strip()
+            else:
+                pkg_tar_s = self.PKG_TAR_SIMPLE.search(clean)
+                if pkg_tar_s:
+                    dl_pkg = pkg_tar_s.group(1).strip()
+                else:
+                    dl_name_m = self.DOWNLOADING_REGEX.search(clean)
+                    if dl_name_m:
+                        cand = dl_name_m.group(1).strip().rstrip('.')
+                        v_m = re.search(r'^([a-zA-Z0-9@_+][a-zA-Z0-9@_\.\+-]*?)-[0-9]', cand)
+                        dl_pkg = v_m.group(1) if v_m else cand
+
+            if dl_pkg:
+                self.downloaded_pkgs.add(dl_pkg.lower())
+            elif idx_match:
+                self.downloaded_pkgs.add(f"idx_{idx_match.group(1)}")
+
+            dl_count = min(len(self.downloaded_pkgs), self.total_packages)
+            dl_stage = round(min(0.28, 0.08 + (dl_count / max(1, self.total_packages)) * 0.20), 4)
+            prog = max(self.last_progress, dl_stage)
+            self.last_progress = prog
+
+            if self.total_packages > 1 and dl_count > 0:
+                dl_msg = f"Downloading package files ({dl_count} of {self.total_packages})..."
+            else:
+                dl_msg = "Downloading package files..."
+
+            return (prog, dl_msg, dl_pkg or self.current_pkg, dl_count, self.total_packages)
+
+        return None
+
+    def get_completion_message(self) -> str:
+        if self.action in ["upgrade", "update"]:
+            if self.is_system_upgrade:
+                return "✓ System update complete!"
+            return f"✓ Updated {self.target_disp} successfully!"
+        elif self.action == "install":
+            return f"✓ Installed {self.target_disp} successfully!"
+        elif self.action == "remove":
+            return f"✓ Removed {self.target_disp} successfully!"
+        return "✓ Action complete!"
+
+    def get_error_message(self, returncode: int) -> str:
+        err_msg = "\n".join(self.error_lines[-3:]) if self.error_lines else f"Exited with code {returncode}"
+        return f"Error: {err_msg}"
+
+
 class PackageManager:
     def __init__(self):
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1739,6 +1984,9 @@ class PackageManager:
             tx_pkg = (self.active_transaction.get("pkg_name") or "").strip().lower()
             if tx_pkg == target:
                 return True
+            cur_pkg = (self.active_transaction.get("current_pkg") or "").strip().lower()
+            if cur_pkg == target:
+                return True
             pkgs = self.active_transaction.get("packages")
             if isinstance(pkgs, (list, set, tuple)):
                 if any(isinstance(p, str) and p.strip().lower() == target for p in pkgs):
@@ -1765,6 +2013,9 @@ class PackageManager:
                 target = pkg_name.strip().lower()
                 tx_pkg = (self.active_transaction.get("pkg_name") or "").strip().lower()
                 matches = (tx_pkg == target)
+                if not matches:
+                    cur_pkg = (self.active_transaction.get("current_pkg") or "").strip().lower()
+                    matches = (cur_pkg == target)
                 if not matches:
                     pkgs = self.active_transaction.get("packages")
                     if isinstance(pkgs, (list, set, tuple)):
@@ -2495,6 +2746,7 @@ class PackageManager:
         Run installation, removal, or upgrade in background without terminal popups.
         """
         is_system_upgrade = pkg_name in ["system", "--all", "all", ""] or not pkg_name
+        target_pkg = ("" if is_system_upgrade else (pkg_name or "")).strip().lower()
 
         with self._action_lock:
             self.active_transaction = {
@@ -2505,22 +2757,46 @@ class PackageManager:
                 "status": "Authenticating & preparing...",
                 "status_msg": "Authenticating & preparing...",
                 "start_time": time.time(),
+                "current_pkg": target_pkg if target_pkg else (pkg_name or None),
+                "completed_pkgs": [],
+                "current_idx": 0,
+                "total_packages": 1,
             }
             if action in ["upgrade", "update"] and is_system_upgrade:
                 with self._lock:
-                    self.active_transaction["packages"] = [u.get("name") for u in self.upgradable_list if u.get("name")]
+                    pkgs = [u.get("name") for u in self.upgradable_list if u.get("name")]
+                    self.active_transaction["packages"] = pkgs
+                    if pkgs:
+                        self.active_transaction["total_packages"] = len(pkgs)
             elif pkg_name:
                 self.active_transaction["packages"] = [pkg_name]
             self._last_progress = 0.06
 
-        def _safe_progress(target_frac: float, msg: str):
+        def _safe_progress(
+            target_frac: float,
+            msg: str,
+            cur_p: Optional[str] = None,
+            cur_i: Optional[int] = None,
+            tot_p: Optional[int] = None
+        ):
             with self._action_lock:
-                frac = max(self._last_progress, min(0.98, target_frac))
+                frac = max(self._last_progress, min(0.98, target_frac)) if target_frac < 1.0 else 1.0
                 self._last_progress = frac
                 if isinstance(self.active_transaction, dict):
                     self.active_transaction["progress"] = frac
                     self.active_transaction["status"] = msg
                     self.active_transaction["status_msg"] = msg
+                    if cur_p is not None:
+                        old_p = self.active_transaction.get("current_pkg")
+                        if old_p and old_p.strip().lower() != cur_p.strip().lower():
+                            comp = self.active_transaction.setdefault("completed_pkgs", [])
+                            if old_p not in comp:
+                                comp.append(old_p)
+                        self.active_transaction["current_pkg"] = cur_p
+                    if cur_i is not None:
+                        self.active_transaction["current_idx"] = cur_i
+                    if tot_p is not None:
+                        self.active_transaction["total_packages"] = tot_p
             progress_cb(frac, msg)
 
         _report_prog = _safe_progress
@@ -2554,10 +2830,16 @@ class PackageManager:
 
             _safe_progress(0.06, "Authenticating & preparing...")
 
-            error_lines = []
-            total_packages = 1
-            downloaded_count = 0
-            installed_count = 0
+            upgrades_set = set()
+            with self._lock:
+                upgrades_set = {u.get("name", "").strip().lower() for u in self.upgradable_list if u.get("name")}
+
+            parser = PacmanProgressParser(
+                action=action,
+                target_pkg=target_pkg,
+                is_system_upgrade=is_system_upgrade,
+                upgradable_pkgs=upgrades_set
+            )
 
             try:
                 proc = subprocess.Popen(
@@ -2570,84 +2852,10 @@ class PackageManager:
                 )
 
                 for line in proc.stdout:
-                    clean = line.strip()
-                    if not clean:
-                        continue
-                    l_lower = clean.lower()
-
-                    if "error:" in l_lower or "failed" in l_lower:
-                        error_lines.append(clean)
-
-                    pkg_match = re.search(r'packages\s*\(\s*(\d+)\s*\)', l_lower)
-                    if pkg_match:
-                        total_packages = max(total_packages, int(pkg_match.group(1)))
-
-                    idx_match = re.search(r'\((\d+)/(\d+)\)', clean)
-                    cur_idx = 0
-                    if idx_match:
-                        cur_idx = int(idx_match.group(1))
-                        tot_idx = int(idx_match.group(2))
-                        total_packages = max(total_packages, tot_idx)
-
-                    # Multi-stage monotonic progression (Guarantees progress ONLY moves forward)
-                    if "resolving dependencies" in l_lower or "calculating dependencies" in l_lower:
-                        _safe_progress(0.16, "Resolving package dependencies...")
-                    elif (
-                        "checking keyring" in l_lower
-                        or "checking keys in keyring" in l_lower
-                        or "package integrity" in l_lower
-                        or "verifying package integrity" in l_lower
-                        or "loading package files" in l_lower
-                    ):
-                        _safe_progress(0.26, "Checking package integrity & keyring...")
-                    elif (
-                        "looking for conflicting" in l_lower
-                        or "checking for conflicting" in l_lower
-                        or "file conflicts" in l_lower
-                        or "available disk space" in l_lower
-                        or "verifying disk space" in l_lower
-                    ):
-                        _safe_progress(0.38, "Verifying disk space & conflicts...")
-                    elif "retrieving packages" in l_lower or "downloading" in l_lower or ".pkg.tar." in l_lower:
-                        downloaded_count = max(downloaded_count + 1, cur_idx if cur_idx else downloaded_count + 1)
-                        dl_stage = min(0.68, 0.40 + (downloaded_count / max(1, total_packages)) * 0.28)
-                        dl_msg = (
-                            f"Downloading package files... ({downloaded_count}/{total_packages})"
-                            if total_packages > 1
-                            else "Downloading package files..."
-                        )
-                        _safe_progress(dl_stage, dl_msg)
-                    elif (
-                        "installing" in l_lower
-                        or "processing package" in l_lower
-                        or "upgrading" in l_lower
-                        or "reinstalling" in l_lower
-                        or (action == "remove" and "removing" in l_lower)
-                    ):
-                        installed_count = max(installed_count + 1, cur_idx if cur_idx else installed_count + 1)
-                        inst_stage = min(0.90, 0.72 + (installed_count / max(1, total_packages)) * 0.18)
-                        if action == "remove":
-                            inst_msg = f"Removing {pkg_name}..."
-                        elif pkg_name and total_packages <= 1 and not is_system_upgrade:
-                            inst_msg = f"Installing {pkg_name}..."
-                        else:
-                            inst_msg = f"Installing packages... ({installed_count}/{total_packages})"
-                        _safe_progress(inst_stage, inst_msg)
-                    elif (
-                        "post-transaction hooks" in l_lower
-                        or "running hooks" in l_lower
-                        or "running post-transaction" in l_lower
-                    ):
-                        _safe_progress(0.92, "Running post-transaction desktop hooks...")
-                    elif (
-                        "conditionneedsupdate" in l_lower
-                        or "desktop file" in l_lower
-                        or "mime" in l_lower
-                        or "icon" in l_lower
-                        or "font" in l_lower
-                        or "finalizing" in l_lower
-                    ):
-                        _safe_progress(0.96, "Finalizing application environment...")
+                    res = parser.process_line(line)
+                    if res:
+                        frac, msg, cur_p, cur_i, tot_p = res
+                        _safe_progress(frac, msg, cur_p=cur_p, cur_i=cur_i, tot_p=tot_p)
 
                 proc.wait()
                 success = proc.returncode == 0
@@ -2668,12 +2876,23 @@ class PackageManager:
                                 except Exception:
                                     pass
                     self.refresh_installed()
+
+                    comp_msg = parser.get_completion_message()
                     with self._action_lock:
                         if self.active_transaction:
                             self.active_transaction["progress"] = 1.0
-                            self.active_transaction["status"] = "Installation complete!"
-                            self.active_transaction["status_msg"] = "Installation complete!"
-                    progress_cb(1.0, "Installation complete!")
+                            self.active_transaction["status"] = comp_msg
+                            self.active_transaction["status_msg"] = comp_msg
+                            c_p = self.active_transaction.get("current_pkg")
+                            if c_p:
+                                comp = self.active_transaction.setdefault("completed_pkgs", [])
+                                if c_p not in comp:
+                                    comp.append(c_p)
+                            self.active_transaction["current_pkg"] = None
+                            self.active_transaction["current_idx"] = parser.current_idx
+                            self.active_transaction["total_packages"] = parser.total_packages
+                    self._last_progress = 1.0
+                    progress_cb(1.0, comp_msg)
                     complete_cb(True, action, pkg_name, "")
                     # Background check for remaining updates
                     threading.Thread(target=self.check_updates, daemon=True).start()
@@ -2688,22 +2907,31 @@ class PackageManager:
 
                     threading.Thread(target=_clear_tx, daemon=True).start()
                 else:
-                    err_msg = "\n".join(error_lines[-3:]) if error_lines else f"Exited with code {proc.returncode}"
-                    if any("password" in l.lower() or "auth" in l.lower() for l in error_lines):
+                    if any("password" in l.lower() or "auth" in l.lower() for l in parser.error_lines):
                         PackageManager.clear_auth_cache()
+                    err_status = parser.get_error_message(proc.returncode)
+                    raw_err = "\n".join(parser.error_lines[-3:]) if parser.error_lines else f"Exited with code {proc.returncode}"
                     with self._action_lock:
+                        if self.active_transaction:
+                            self.active_transaction["progress"] = 0.0
+                            self.active_transaction["status"] = err_status
+                            self.active_transaction["status_msg"] = err_status
                         self.active_transaction = None
                         self._last_progress = 0.0
-                    progress_cb(0.0, f"Error: {err_msg}")
-                    complete_cb(False, action, pkg_name, err_msg)
+                    progress_cb(0.0, err_status)
+                    complete_cb(False, action, pkg_name, raw_err)
 
             except Exception as e:
-                err_msg = str(e)
+                err_status = f"Error: {e}"
                 with self._action_lock:
+                    if self.active_transaction:
+                        self.active_transaction["progress"] = 0.0
+                        self.active_transaction["status"] = err_status
+                        self.active_transaction["status_msg"] = err_status
                     self.active_transaction = None
                     self._last_progress = 0.0
-                progress_cb(0.0, f"Error: {err_msg}")
-                complete_cb(False, action, pkg_name, err_msg)
+                progress_cb(0.0, err_status)
+                complete_cb(False, action, pkg_name, str(e))
 
         threading.Thread(target=_worker, daemon=True).start()
 

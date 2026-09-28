@@ -31,8 +31,36 @@ from typing import Dict, List, Optional, Set, Tuple, Any, Callable
 CACHE_DIR = Path.home() / ".cache" / "aura"
 CACHE_FILE = CACHE_DIR / "sync_cache.pkl"
 UPDATES_CACHE_FILE = CACHE_DIR / "updates_cache.json"
+FEATURED_STATE_FILE = CACHE_DIR / "featured_state.json"
 SYNC_DIR = Path("/var/lib/pacman/sync")
 ASKPASS_SCRIPT = Path.home() / ".local" / "share" / "aura" / "aura-askpass"
+
+def _load_featured_state() -> Dict[str, Any]:
+    """Load persistent featured rotation state from disk."""
+    if FEATURED_STATE_FILE.exists():
+        try:
+            with open(FEATURED_STATE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return {
+                        "offset": int(data.get("offset", 0)),
+                        "last_shown": [str(x) for x in data.get("last_shown", []) if isinstance(x, str)],
+                    }
+        except Exception:
+            pass
+    return {"offset": 0, "last_shown": []}
+
+def _save_featured_state(offset: int, last_shown: List[str]):
+    """Save persistent featured rotation state to disk immediately."""
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_file = FEATURED_STATE_FILE.with_suffix(".tmp")
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump({"offset": int(offset), "last_shown": list(last_shown)}, f, indent=2)
+        tmp_file.replace(FEATURED_STATE_FILE)
+    except Exception:
+        pass
+
 
 # Apple-style Curated Categories (Symmetric, No Emojis, Authentic Functional Channels)
 CURATED_CATEGORIES = [
@@ -180,47 +208,26 @@ CURATED_CATEGORIES = [
 FEATURED_APPS = CURATED_CATEGORIES
 
 # Dynamic Featured Applications Metadata & Editorial Catalog
-FEATURED_APP_METADATA: Dict[str, Dict[str, Any]] = {
+FEATURED_APP_PRESETS: Dict[str, Dict[str, Any]] = {
+    # Media & Creative
     "blender": {
         "title": "Blender 3D Studio",
-        "tag": "FEATURED CREATIVE SUITE",
+        "tag": "FEATURED 3D SUITE",
         "sub": "Unleash next-gen 3D modeling, animation, physics simulation, and real-time photorealistic rendering",
         "accent_color": "#eb7700",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(235, 119, 0, 0.32) 0%, rgba(235, 119, 0, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(235, 119, 0, 0.24) 0%, rgba(22, 24, 32, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(235, 119, 0, 0.40)",
         "icon": "blender",
-        "source": "pacman",
-    },
-    "code": {
-        "title": "Visual Studio Code",
-        "tag": "DEVELOPER SPOTLIGHT",
-        "sub": "The world's most versatile code editor with intelligent AI autocompletion, debugging, and cloud workflows",
-        "accent_color": "#007acc",
-        "icon": "code",
-        "source": "pacman",
-    },
-    "steam": {
-        "title": "Steam on Linux",
-        "tag": "NEXT-GEN GAMING",
-        "sub": "Play thousands of native and Windows titles with seamless Proton performance",
-        "accent_color": "#66c0f4",
-        "bg": "linear-gradient(135deg, rgba(23, 29, 37, 0.5) 0%, rgba(102, 192, 244, 0.26) 50%, rgba(13, 17, 23, 0.95) 100%)",
-        "border": "rgba(102, 192, 244, 0.45)",
-        "icon": "steam",
         "source": "pacman",
     },
     "obs-studio": {
         "title": "OBS Studio",
         "tag": "BROADCAST ESSENTIAL",
-        "sub": "Stream high-definition gameplay and capture pristine desktop broadcasts",
+        "sub": "Stream high-definition gameplay and capture pristine multi-source desktop broadcasts",
         "accent_color": "#a371f7",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(163, 113, 247, 0.32) 0%, rgba(163, 113, 247, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(48, 54, 61, 0.4) 0%, rgba(163, 113, 247, 0.24) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(163, 113, 247, 0.40)",
         "icon": "obs-studio",
-        "source": "pacman",
-    },
-    "proton-vpn-gtk-app": {
-        "title": "Proton VPN",
-        "tag": "PRIVACY ESSENTIAL",
-        "sub": "High-speed encrypted WireGuard VPN tunnel with strict zero-logging policy and Swiss privacy",
-        "accent_color": "#6d4aff",
-        "icon": "proton-vpn-gtk-app",
         "source": "pacman",
     },
     "kdenlive": {
@@ -228,39 +235,79 @@ FEATURED_APP_METADATA: Dict[str, Dict[str, Any]] = {
         "tag": "NEXT-GEN CREATIVE",
         "sub": "Powerful non-linear multi-track video editing with color grading, transitions, and audio mastering",
         "accent_color": "#2980b9",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(41, 128, 185, 0.32) 0%, rgba(41, 128, 185, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(41, 128, 185, 0.24) 0%, rgba(18, 25, 35, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(41, 128, 185, 0.40)",
         "icon": "kdenlive",
         "source": "pacman",
     },
-    "zed": {
-        "title": "Zed Code Editor",
-        "tag": "TRENDING IN DEV",
-        "sub": "Lightning-fast, GPU-accelerated code editor engineered in Rust for instantaneous collaboration",
-        "accent_color": "#47c8ff",
-        "icon": "zed",
-        "source": "aur",
-    },
-    "heroic-games-launcher-bin": {
-        "title": "Heroic Games Launcher",
-        "tag": "COMMUNITY FAVORITE",
-        "sub": "Modern native open-source launcher for Epic Games, GOG, and Amazon Prime Gaming on Linux",
-        "accent_color": "#d9534f",
-        "icon": "heroic",
-        "source": "aur",
-    },
-    "libreoffice-fresh": {
-        "title": "LibreOffice Fresh",
-        "tag": "EDITORS' CHOICE",
-        "sub": "Comprehensive enterprise-grade office productivity suite compatible with Microsoft Office formats",
-        "accent_color": "#18a058",
-        "icon": "libreoffice-main",
+    "gimp": {
+        "title": "GIMP Studio",
+        "tag": "CREATIVE IMAGE SUITE",
+        "sub": "Advanced open-source image manipulation, high-bit-depth retouching, and digital artwork creation",
+        "accent_color": "#e67e22",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(230, 126, 34, 0.32) 0%, rgba(230, 126, 34, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(230, 126, 34, 0.24) 0%, rgba(25, 23, 20, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(230, 126, 34, 0.40)",
+        "icon": "gimp",
         "source": "pacman",
     },
-    "discord": {
-        "title": "Discord",
-        "tag": "COMMUNITY FAVORITE",
-        "sub": "All-in-one low-latency voice, video, and text communication for communities and gaming squads",
-        "accent_color": "#5865f2",
-        "icon": "discord",
+    "inkscape": {
+        "title": "Inkscape Vector Studio",
+        "tag": "VECTOR DESIGN STUDIO",
+        "sub": "Professional open-source vector graphics editor for diagrams, typography, logos, and illustration",
+        "accent_color": "#00d2d3",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(0, 210, 211, 0.32) 0%, rgba(0, 210, 211, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(0, 210, 211, 0.24) 0%, rgba(18, 30, 32, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(0, 210, 211, 0.40)",
+        "icon": "inkscape",
+        "source": "pacman",
+    },
+    "audacity": {
+        "title": "Audacity Audio Studio",
+        "tag": "AUDIO MASTERING SUITE",
+        "sub": "Multi-track audio editor, recorder, and mastering suite with real-time effects and spectrum analysis",
+        "accent_color": "#0984e3",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(9, 132, 227, 0.32) 0%, rgba(9, 132, 227, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(9, 132, 227, 0.24) 0%, rgba(18, 26, 38, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(9, 132, 227, 0.40)",
+        "icon": "audacity",
+        "source": "pacman",
+    },
+    "darktable": {
+        "title": "Darktable Photography",
+        "tag": "PRO PHOTO WORKFLOW",
+        "sub": "Virtual lighttable and non-destructive RAW photo developer for professional photographers",
+        "accent_color": "#d35400",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(211, 84, 0, 0.32) 0%, rgba(211, 84, 0, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(211, 84, 0, 0.24) 0%, rgba(28, 20, 18, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(211, 84, 0, 0.40)",
+        "icon": "darktable",
+        "source": "pacman",
+    },
+    "ardour": {
+        "title": "Ardour Digital Audio",
+        "tag": "DIGITAL AUDIO WORKSTATION",
+        "sub": "Professional digital audio workstation (DAW) for recording, editing, mixing, and mastering",
+        "accent_color": "#c0392b",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(192, 57, 43, 0.32) 0%, rgba(192, 57, 43, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(192, 57, 43, 0.24) 0%, rgba(28, 18, 18, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(192, 57, 43, 0.40)",
+        "icon": "ardour",
+        "source": "pacman",
+    },
+    "handbrake": {
+        "title": "HandBrake Transcoder",
+        "tag": "VIDEO TRANSCODING PRO",
+        "sub": "Universal open-source video transcoder converting videos to modern AV1, HEVC, and H.264 formats",
+        "accent_color": "#e74c3c",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(231, 76, 60, 0.32) 0%, rgba(231, 76, 60, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(231, 76, 60, 0.24) 0%, rgba(28, 19, 20, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(231, 76, 60, 0.40)",
+        "icon": "fr.handbrake.ghb",
+        "source": "pacman",
+    },
+    "vlc": {
+        "title": "VLC Media Player",
+        "tag": "UNIVERSAL MEDIA PLAYER",
+        "sub": "Universal media player playing every format, codec, stream, and subtitle out of the box with zero fuss",
+        "accent_color": "#ff793f",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(255, 121, 63, 0.32) 0%, rgba(255, 121, 63, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(255, 121, 63, 0.24) 0%, rgba(28, 22, 18, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(255, 121, 63, 0.40)",
+        "icon": "vlc",
         "source": "pacman",
     },
     "spotify": {
@@ -268,78 +315,284 @@ FEATURED_APP_METADATA: Dict[str, Dict[str, Any]] = {
         "tag": "STREAMING SPOTLIGHT",
         "sub": "Stream millions of high-fidelity tracks, personalized playlists, and podcasts directly on desktop",
         "accent_color": "#1db954",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(29, 185, 84, 0.32) 0%, rgba(29, 185, 84, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(29, 185, 84, 0.24) 0%, rgba(16, 26, 20, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(29, 185, 84, 0.40)",
         "icon": "spotify",
         "source": "aur",
     },
-    "gimp": {
-        "title": "GIMP Studio",
-        "tag": "FEATURED CREATIVE SUITE",
-        "sub": "Advanced open-source image manipulation, high-bit-depth retouching, and digital artwork creation",
-        "accent_color": "#e67e22",
-        "icon": "gimp",
+    "mpv": {
+        "title": "mpv Video Player",
+        "tag": "MEDIA SPOTLIGHT",
+        "sub": "Minimalist, powerhouse GPU-accelerated video player with high-quality video scaling and shaders",
+        "accent_color": "#6c5ce7",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(108, 92, 231, 0.32) 0%, rgba(108, 92, 231, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(108, 92, 231, 0.24) 0%, rgba(20, 19, 32, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(108, 92, 231, 0.40)",
+        "icon": "mpv",
         "source": "pacman",
+    },
+
+    # Development
+    "code": {
+        "title": "Visual Studio Code",
+        "tag": "DEVELOPER SPOTLIGHT",
+        "sub": "The world's most versatile code editor with intelligent AI autocompletion, debugging, and cloud workflows",
+        "accent_color": "#007acc",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(0, 122, 204, 0.32) 0%, rgba(0, 122, 204, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(0, 122, 204, 0.25) 0%, rgba(18, 24, 34, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(0, 122, 204, 0.40)",
+        "icon": "code",
+        "source": "pacman",
+    },
+    "zed": {
+        "title": "Zed Code Editor",
+        "tag": "NEXT-GEN CODE EDITOR",
+        "sub": "Lightning-fast, GPU-accelerated code editor engineered in Rust for instantaneous multiplayer collaboration",
+        "accent_color": "#47c8ff",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(71, 200, 255, 0.32) 0%, rgba(71, 200, 255, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(71, 200, 255, 0.24) 0%, rgba(18, 28, 38, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(71, 200, 255, 0.40)",
+        "icon": "zed",
+        "source": "aur",
     },
     "neovim": {
         "title": "Neovim",
-        "tag": "TRENDING IN DEV",
-        "sub": "Hyperextensible Vim-based text editor built for high-speed terminal coding and Lua plugins",
+        "tag": "HYPER-EXTENSIBLE VIM",
+        "sub": "Hyperextensible Vim-based text editor built for high-speed terminal coding, Lua plugins, and native LSP",
         "accent_color": "#57a143",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(87, 161, 67, 0.32) 0%, rgba(87, 161, 67, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(87, 161, 67, 0.24) 0%, rgba(18, 26, 20, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(87, 161, 67, 0.40)",
         "icon": "nvim",
         "source": "pacman",
     },
     "alacritty": {
         "title": "Alacritty Terminal",
-        "tag": "DEVELOPER SPOTLIGHT",
-        "sub": "Blazing-fast GPU-accelerated terminal emulator optimized for raw throughput and low latency",
+        "tag": "BLAZING FAST TERMINAL",
+        "sub": "Blazing-fast GPU-accelerated terminal emulator optimized for raw throughput, low latency, and simplicity",
         "accent_color": "#f39c12",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(243, 156, 18, 0.32) 0%, rgba(243, 156, 18, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(243, 156, 18, 0.24) 0%, rgba(28, 24, 18, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(243, 156, 18, 0.40)",
         "icon": "Alacritty",
         "source": "pacman",
     },
     "kitty": {
         "title": "Kitty Terminal",
-        "tag": "DEVELOPER SPOTLIGHT",
+        "tag": "GPU POWER TERMINAL",
         "sub": "Feature-rich GPU-accelerated terminal with tabs, splits, graphics protocol support, and scriptability",
         "accent_color": "#2ecc71",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(46, 204, 113, 0.32) 0%, rgba(46, 204, 113, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(46, 204, 113, 0.24) 0%, rgba(18, 28, 22, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(46, 204, 113, 0.40)",
         "icon": "kitty",
         "source": "pacman",
     },
+    "lazygit": {
+        "title": "LazyGit",
+        "tag": "TERMINAL GIT SPOTLIGHT",
+        "sub": "Intuitive terminal graphical user interface for effortlessly navigating Git commits, branches, and diffs",
+        "accent_color": "#ff6b6b",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(255, 107, 107, 0.32) 0%, rgba(255, 107, 107, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(255, 107, 107, 0.24) 0%, rgba(30, 20, 22, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(255, 107, 107, 0.40)",
+        "icon": "lazygit",
+        "source": "pacman",
+    },
+    "postman-bin": {
+        "title": "Postman API Suite",
+        "tag": "API DEVELOPMENT SUITE",
+        "sub": "Complete API development platform for designing, testing, automating, and mocking HTTP & GraphQL endpoints",
+        "accent_color": "#ff6c37",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(255, 108, 55, 0.32) 0%, rgba(255, 108, 55, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(255, 108, 55, 0.24) 0%, rgba(30, 21, 18, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(255, 108, 55, 0.40)",
+        "icon": "postman",
+        "source": "aur",
+    },
+    "docker": {
+        "title": "Docker Platform",
+        "tag": "CONTAINER PLATFORM",
+        "sub": "Industry-standard container platform to build, package, and deploy isolated microservices effortlessly",
+        "accent_color": "#2496ed",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(36, 150, 237, 0.32) 0%, rgba(36, 150, 237, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(36, 150, 237, 0.24) 0%, rgba(18, 25, 36, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(36, 150, 237, 0.40)",
+        "icon": "docker",
+        "source": "pacman",
+    },
+    "dbeaver": {
+        "title": "DBeaver Studio",
+        "tag": "UNIVERSAL DATABASE GUI",
+        "sub": "Universal database management tool supporting PostgreSQL, MySQL, SQLite, and cloud databases",
+        "accent_color": "#377ba8",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(55, 123, 168, 0.32) 0%, rgba(55, 123, 168, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(55, 123, 168, 0.24) 0%, rgba(18, 25, 32, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(55, 123, 168, 0.40)",
+        "icon": "dbeaver",
+        "source": "pacman",
+    },
+    "rust": {
+        "title": "Rust & Cargo",
+        "tag": "SYSTEMS LANGUAGE",
+        "sub": "Empowering everyone to build reliable, memory-safe, and blazingly fast modern systems",
+        "accent_color": "#ce412b",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(206, 65, 43, 0.32) 0%, rgba(206, 65, 43, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(206, 65, 43, 0.24) 0%, rgba(30, 19, 18, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(206, 65, 43, 0.40)",
+        "icon": "rust",
+        "source": "pacman",
+    },
+    "go": {
+        "title": "Go Language",
+        "tag": "CLOUD CONCURRENCY",
+        "sub": "Fast, compiled, concurrency-focused programming language engineered by Google for cloud scale",
+        "accent_color": "#00add8",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(0, 173, 216, 0.32) 0%, rgba(0, 173, 216, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(0, 173, 216, 0.24) 0%, rgba(16, 26, 34, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(0, 173, 216, 0.40)",
+        "icon": "go",
+        "source": "pacman",
+    },
+    "git": {
+        "title": "Git Version Control",
+        "tag": "DISTRIBUTED VERSION CONTROL",
+        "sub": "Fast, scalable distributed revision control system designed for projects of any scale",
+        "accent_color": "#f05032",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(240, 80, 50, 0.32) 0%, rgba(240, 80, 50, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(240, 80, 50, 0.24) 0%, rgba(30, 20, 18, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(240, 80, 50, 0.40)",
+        "icon": "git",
+        "source": "pacman",
+    },
+
+    # Gaming
+    "steam": {
+        "title": "Steam on Linux",
+        "tag": "PRO GAMING PLATFORM",
+        "sub": "Play thousands of native and Windows titles with seamless Proton performance and Steam Deck synergy",
+        "accent_color": "#66c0f4",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(102, 192, 244, 0.32) 0%, rgba(102, 192, 244, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(23, 29, 37, 0.6) 0%, rgba(102, 192, 244, 0.24) 45%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(102, 192, 244, 0.40)",
+        "icon": "steam",
+        "source": "pacman",
+    },
+    "heroic-games-launcher-bin": {
+        "title": "Heroic Games Launcher",
+        "tag": "EPIC & GOG LAUNCHER",
+        "sub": "Modern native open-source launcher for Epic Games, GOG, and Amazon Prime Gaming on Linux",
+        "accent_color": "#d9534f",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(217, 83, 79, 0.32) 0%, rgba(217, 83, 79, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(217, 83, 79, 0.24) 0%, rgba(30, 20, 22, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(217, 83, 79, 0.40)",
+        "icon": "heroic",
+        "source": "aur",
+    },
     "lutris": {
         "title": "Lutris Gaming Platform",
-        "tag": "NEXT-GEN GAMING",
+        "tag": "OPEN GAMING HUB",
         "sub": "Open gaming management platform organizing your GOG, Epic, Steam, Battle.net, and emulator libraries",
         "accent_color": "#ff6f00",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(255, 111, 0, 0.32) 0%, rgba(255, 111, 0, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(255, 111, 0, 0.24) 0%, rgba(30, 23, 18, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(255, 111, 0, 0.40)",
         "icon": "lutris",
         "source": "pacman",
     },
     "retroarch": {
         "title": "RetroArch",
-        "tag": "NEXT-GEN GAMING",
+        "tag": "RETRO EMULATION MATRIX",
         "sub": "The premier multi-system emulator frontend for classic consoles, handhelds, and arcade machines",
         "accent_color": "#3498db",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(52, 152, 219, 0.32) 0%, rgba(52, 152, 219, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(52, 152, 219, 0.24) 0%, rgba(18, 26, 35, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(52, 152, 219, 0.40)",
         "icon": "retroarch",
+        "source": "pacman",
+    },
+    "prismlauncher": {
+        "title": "Prism Launcher",
+        "tag": "MINECRAFT POWER LAUNCHER",
+        "sub": "High-performance custom Minecraft launcher with seamless modpack installation and instance isolation",
+        "accent_color": "#30d158",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(48, 209, 88, 0.32) 0%, rgba(48, 209, 88, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(48, 209, 88, 0.24) 0%, rgba(18, 28, 20, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(48, 209, 88, 0.40)",
+        "icon": "org.prismlauncher.PrismLauncher",
+        "source": "pacman",
+    },
+    "bottles": {
+        "title": "Bottles for Linux",
+        "tag": "WINE ENVIRONMENT MANAGER",
+        "sub": "Easily manage Wine and Proton prefixes to run Windows software and games with custom environments",
+        "accent_color": "#54a0ff",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(84, 160, 255, 0.32) 0%, rgba(84, 160, 255, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(84, 160, 255, 0.24) 0%, rgba(20, 26, 36, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(84, 160, 255, 0.40)",
+        "icon": "com.usebottles.bottles",
+        "source": "aur",
+    },
+    "ryujinx-bin": {
+        "title": "Ryujinx Emulator",
+        "tag": "PRECISION EMULATION",
+        "sub": "Experimental Nintendo Switch emulator offering exceptional accuracy, performance, and Vulkan backend",
+        "accent_color": "#e056fd",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(224, 86, 253, 0.32) 0%, rgba(224, 86, 253, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(224, 86, 253, 0.24) 0%, rgba(30, 20, 32, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(224, 86, 253, 0.40)",
+        "icon": "ryujinx",
+        "source": "aur",
+    },
+    "gamemode": {
+        "title": "Feral GameMode",
+        "tag": "SYSTEM GAME OPTIMIZER",
+        "sub": "System optimization daemon that tunes CPU governors and scheduler priorities for smooth frame rates",
+        "accent_color": "#e84118",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(232, 65, 24, 0.32) 0%, rgba(232, 65, 24, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(232, 65, 24, 0.24) 0%, rgba(30, 19, 18, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(232, 65, 24, 0.40)",
+        "icon": "applications-games",
+        "source": "pacman",
+    },
+    "mangohud": {
+        "title": "MangoHud Overlay",
+        "tag": "VULKAN GAMING OVERLAY",
+        "sub": "Vulkan and OpenGL overlay for monitoring FPS, frametimes, GPU temperatures, and memory consumption",
+        "accent_color": "#e84393",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(232, 67, 147, 0.32) 0%, rgba(232, 67, 147, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(232, 67, 147, 0.24) 0%, rgba(30, 19, 26, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(232, 67, 147, 0.40)",
+        "icon": "applications-games",
+        "source": "pacman",
+    },
+    "wine": {
+        "title": "Wine Compatibility Layer",
+        "tag": "WINDOWS COMPATIBILITY",
+        "sub": "Run Windows applications, productivity tools, and legacy software natively on Linux desktops",
+        "accent_color": "#8e44ad",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(142, 68, 173, 0.32) 0%, rgba(142, 68, 173, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(142, 68, 173, 0.24) 0%, rgba(26, 19, 30, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(142, 68, 173, 0.40)",
+        "icon": "wine",
+        "source": "pacman",
+    },
+
+    # Privacy & Security
+    "proton-vpn-gtk-app": {
+        "title": "Proton VPN",
+        "tag": "ENCRYPTED VPN SHIELD",
+        "sub": "High-speed encrypted WireGuard VPN tunnel with strict zero-logging policy and Swiss privacy",
+        "accent_color": "#6d4aff",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(109, 74, 255, 0.32) 0%, rgba(109, 74, 255, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(109, 74, 255, 0.25) 0%, rgba(20, 20, 35, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(109, 74, 255, 0.40)",
+        "icon": "proton-vpn-gtk-app",
         "source": "pacman",
     },
     "brave-bin": {
         "title": "Brave Browser",
-        "tag": "PRIVACY ESSENTIAL",
+        "tag": "SHIELDED WEB BROWSING",
         "sub": "High-speed browser with native ad-blocking, tracker shielding, and Web3 capabilities",
         "accent_color": "#fb542b",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(251, 84, 43, 0.32) 0%, rgba(251, 84, 43, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(251, 84, 43, 0.24) 0%, rgba(30, 21, 19, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(251, 84, 43, 0.40)",
         "icon": "brave-browser",
         "source": "aur",
     },
     "signal-desktop": {
         "title": "Signal Desktop",
-        "tag": "PRIVACY ESSENTIAL",
+        "tag": "ENCRYPTED MESSAGING",
         "sub": "State-of-the-art end-to-end encrypted messaging with voice calls, video chats, and vanishing messages",
         "accent_color": "#3a76f0",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(58, 118, 240, 0.32) 0%, rgba(58, 118, 240, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(58, 118, 240, 0.24) 0%, rgba(19, 25, 36, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(58, 118, 240, 0.40)",
         "icon": "signal-desktop",
         "source": "pacman",
     },
     "keepassxc": {
         "title": "KeePassXC Vault",
-        "tag": "SECURITY ESSENTIAL",
+        "tag": "OFFLINE PASSWORD VAULT",
         "sub": "Secure offline password manager with AES-256 encryption, auto-type, and TOTP authentication",
         "accent_color": "#52982d",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(82, 152, 45, 0.32) 0%, rgba(82, 152, 45, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(82, 152, 45, 0.24) 0%, rgba(19, 27, 20, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(82, 152, 45, 0.40)",
         "icon": "keepassxc",
         "source": "pacman",
     },
@@ -348,266 +601,319 @@ FEATURED_APP_METADATA: Dict[str, Dict[str, Any]] = {
         "tag": "SECURITY ESSENTIAL",
         "sub": "Open-source zero-knowledge password vault protecting credentials across all your devices",
         "accent_color": "#175ddc",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(23, 93, 220, 0.32) 0%, rgba(23, 93, 220, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(23, 93, 220, 0.24) 0%, rgba(18, 24, 36, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(23, 93, 220, 0.40)",
         "icon": "bitwarden",
-        "source": "pacman",
-    },
-    "obsidian": {
-        "title": "Obsidian",
-        "tag": "EDITORS' CHOICE",
-        "sub": "Second brain and knowledge graph application storing linked markdown notes locally on your filesystem",
-        "accent_color": "#7c3aed",
-        "icon": "obsidian",
-        "source": "aur",
-    },
-    "krita": {
-        "title": "Krita Digital Painting",
-        "tag": "FEATURED CREATIVE SUITE",
-        "sub": "Professional digital painting and illustration studio with world-class brush engines and stabilizers",
-        "accent_color": "#f368e0",
-        "icon": "krita",
-        "source": "pacman",
-    },
-    "inkscape": {
-        "title": "Inkscape Vector Studio",
-        "tag": "NEXT-GEN CREATIVE",
-        "sub": "Professional open-source vector graphics editor for diagrams, typography, logos, and illustration",
-        "accent_color": "#00d2d3",
-        "icon": "inkscape",
-        "source": "pacman",
-    },
-    "audacity": {
-        "title": "Audacity Audio Studio",
-        "tag": "AUDIO SPOTLIGHT",
-        "sub": "Multi-track audio editor, recorder, and mastering suite with real-time effects and spectrum analysis",
-        "accent_color": "#0984e3",
-        "icon": "audacity",
-        "source": "pacman",
-    },
-    "docker": {
-        "title": "Docker Platform",
-        "tag": "DEVELOPER SPOTLIGHT",
-        "sub": "Industry-standard container platform to build, package, and deploy isolated microservices effortlessly",
-        "accent_color": "#2496ed",
-        "icon": "docker",
-        "source": "pacman",
-    },
-    "postman-bin": {
-        "title": "Postman API Suite",
-        "tag": "TRENDING IN DEV",
-        "sub": "Complete API development platform for designing, testing, and mocking HTTP & GraphQL endpoints",
-        "accent_color": "#ff6c37",
-        "icon": "postman",
-        "source": "aur",
-    },
-    "btop": {
-        "title": "Btop Resource Monitor",
-        "tag": "SYSTEM SPOTLIGHT",
-        "sub": "Stunning aesthetic terminal monitor tracking CPU, GPU, memory, disks, and network with live graphs",
-        "accent_color": "#ff5370",
-        "icon": "btop",
-        "source": "pacman",
-    },
-    "timeshift": {
-        "title": "Timeshift System Restore",
-        "tag": "SYSTEM ESSENTIAL",
-        "sub": "Rock-solid system snapshot utility protecting your OS files using incremental BTRFS and RSYNC backups",
-        "accent_color": "#e056fd",
-        "icon": "timeshift",
-        "source": "pacman",
-    },
-    "vlc": {
-        "title": "VLC Media Player",
-        "tag": "COMMUNITY FAVORITE",
-        "sub": "Universal media player playing every format, codec, stream, and subtitle out of the box with zero fuss",
-        "accent_color": "#ff793f",
-        "icon": "vlc",
-        "source": "pacman",
-    },
-    "prismlauncher": {
-        "title": "Prism Launcher",
-        "tag": "COMMUNITY FAVORITE",
-        "sub": "High-performance custom Minecraft launcher with seamless modpack installation and instance isolation",
-        "accent_color": "#30d158",
-        "icon": "org.prismlauncher.PrismLauncher",
-        "source": "pacman",
-    },
-    "bottles": {
-        "title": "Bottles for Linux",
-        "tag": "NEXT-GEN GAMING",
-        "sub": "Easily manage Wine and Proton prefixes to run Windows software and games with custom environments",
-        "accent_color": "#54a0ff",
-        "icon": "com.usebottles.bottles",
-        "source": "aur",
-    },
-    "wireguard-tools": {
-        "title": "WireGuard",
-        "tag": "PRIVACY ESSENTIAL",
-        "sub": "Extremely fast, modern cryptographic network tunnel with peer-to-peer simplicity and minimal overhead",
-        "accent_color": "#8854d0",
-        "icon": "network-vpn",
-        "source": "pacman",
-    },
-    "telegram-desktop": {
-        "title": "Telegram Desktop",
-        "tag": "COMMUNITY FAVORITE",
-        "sub": "Blazing fast cloud messaging client with instant synchronization, giant channels, and voice chats",
-        "accent_color": "#0088cc",
-        "icon": "telegram",
-        "source": "pacman",
-    },
-    "fastfetch": {
-        "title": "Fastfetch",
-        "tag": "SYSTEM SPOTLIGHT",
-        "sub": "Lightning-fast, highly customizable modern system information display written in performant C",
-        "accent_color": "#00b894",
-        "icon": "fastfetch",
-        "source": "pacman",
-    },
-    "firefox": {
-        "title": "Firefox Browser",
-        "tag": "PRIVACY ESSENTIAL",
-        "sub": "Fast, independent browser with built-in total cookie protection, container tabs, and fingerprint resistance",
-        "accent_color": "#ff7139",
-        "icon": "firefox",
-        "source": "pacman",
-    },
-    "rust": {
-        "title": "Rust & Cargo",
-        "tag": "TRENDING IN DEV",
-        "sub": "Empowering everyone to build reliable, memory-safe, and blazingly fast modern systems",
-        "accent_color": "#ce412b",
-        "icon": "rust",
-        "source": "pacman",
-    },
-    "go": {
-        "title": "Go Language",
-        "tag": "DEVELOPER SPOTLIGHT",
-        "sub": "Fast, compiled, concurrency-focused programming language engineered by Google for cloud scale",
-        "accent_color": "#00add8",
-        "icon": "go",
-        "source": "pacman",
-    },
-    "dbeaver": {
-        "title": "DBeaver Studio",
-        "tag": "DEVELOPER SPOTLIGHT",
-        "sub": "Universal database management tool supporting PostgreSQL, MySQL, SQLite, and cloud databases",
-        "accent_color": "#377ba8",
-        "icon": "dbeaver",
-        "source": "pacman",
-    },
-    "joplin-desktop": {
-        "title": "Joplin Notes",
-        "tag": "EDITORS' CHOICE",
-        "sub": "Secure, open-source note-taking and to-do application with end-to-end encrypted synchronization",
-        "accent_color": "#1b6ac9",
-        "icon": "joplin",
-        "source": "aur",
-    },
-    "onlyoffice-bin": {
-        "title": "OnlyOffice",
-        "tag": "EDITORS' CHOICE",
-        "sub": "High-compatibility office suite featuring collaborative document, spreadsheet, and slide editing",
-        "accent_color": "#ff6f59",
-        "icon": "onlyoffice-desktopeditors",
-        "source": "aur",
-    },
-    "anytype-bin": {
-        "title": "Anytype",
-        "tag": "PRODUCTIVITY SPOTLIGHT",
-        "sub": "Next-generation private knowledge base and decentralized operating space for personal ideas",
-        "accent_color": "#f59e0b",
-        "icon": "anytype",
-        "source": "aur",
-    },
-    "foliate": {
-        "title": "Foliate Reader",
-        "tag": "EDITORS' CHOICE",
-        "sub": "Modern, distraction-free ebook reader with custom typography, annotations, and dictionary lookup",
-        "accent_color": "#10b981",
-        "icon": "com.github.johnfactotum.Foliate",
-        "source": "pacman",
-    },
-    "handbrake": {
-        "title": "HandBrake",
-        "tag": "MEDIA SPOTLIGHT",
-        "sub": "Universal open-source video transcoder converting videos to modern AV1, HEVC, and H.264 formats",
-        "accent_color": "#e74c3c",
-        "icon": "fr.handbrake.ghb",
-        "source": "pacman",
-    },
-    "mpv": {
-        "title": "mpv Video Player",
-        "tag": "MEDIA SPOTLIGHT",
-        "sub": "Minimalist, powerhouse GPU-accelerated video player with high-quality video scaling and shaders",
-        "accent_color": "#6c5ce7",
-        "icon": "mpv",
-        "source": "pacman",
-    },
-    "darktable": {
-        "title": "Darktable Photography",
-        "tag": "NEXT-GEN CREATIVE",
-        "sub": "Virtual lighttable and non-destructive RAW photo developer for professional photographers",
-        "accent_color": "#d35400",
-        "icon": "darktable",
-        "source": "pacman",
-    },
-    "ardour": {
-        "title": "Ardour Digital Audio",
-        "tag": "AUDIO SPOTLIGHT",
-        "sub": "Professional digital audio workstation (DAW) for recording, editing, mixing, and mastering",
-        "accent_color": "#c0392b",
-        "icon": "ardour",
-        "source": "pacman",
-    },
-    "gparted": {
-        "title": "GParted Partition Editor",
-        "tag": "SYSTEM ESSENTIAL",
-        "sub": "Graphical partition editor to resize, format, check, and reorganize hard drives and SSDs safely",
-        "accent_color": "#f39c12",
-        "icon": "gparted",
-        "source": "pacman",
-    },
-    "stacer-bin": {
-        "title": "Stacer Optimizer",
-        "tag": "SYSTEM SPOTLIGHT",
-        "sub": "Comprehensive Linux system optimizer, startup manager, and hardware monitoring dashboard",
-        "accent_color": "#3498db",
-        "icon": "stacer",
-        "source": "aur",
-    },
-    "gamemode": {
-        "title": "Feral GameMode",
-        "tag": "NEXT-GEN GAMING",
-        "sub": "System optimization daemon that tunes CPU governors and scheduler priorities for smooth frame rates",
-        "accent_color": "#e84118",
-        "icon": "applications-games",
         "source": "pacman",
     },
     "mullvad-vpn-bin": {
         "title": "Mullvad VPN",
-        "tag": "PRIVACY ESSENTIAL",
+        "tag": "ZERO-LOG WIREGUARD",
         "sub": "Privacy-focused VPN with no personal data collection, WireGuard tunnels, and quantum-resistant encryption",
         "accent_color": "#e5ad23",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(229, 173, 35, 0.32) 0%, rgba(229, 173, 35, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(229, 173, 35, 0.24) 0%, rgba(28, 25, 18, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(229, 173, 35, 0.40)",
         "icon": "mullvad-vpn",
         "source": "aur",
     },
     "torbrowser-launcher": {
         "title": "Tor Browser",
-        "tag": "PRIVACY ESSENTIAL",
+        "tag": "ANONYMOUS ONION ROUTING",
         "sub": "Defend against tracking, surveillance, and censorship with multi-layered onion encryption routing",
         "accent_color": "#7d4698",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(125, 70, 152, 0.32) 0%, rgba(125, 70, 152, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(125, 70, 152, 0.24) 0%, rgba(25, 19, 28, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(125, 70, 152, 0.40)",
         "icon": "tor-browser",
         "source": "pacman",
     },
-    "lazygit": {
-        "title": "LazyGit",
-        "tag": "TRENDING IN DEV",
-        "sub": "Intuitive terminal graphical user interface for effortlessly navigating Git commits and branches",
-        "accent_color": "#ff6b6b",
-        "icon": "lazygit",
+    "wireshark-qt": {
+        "title": "Wireshark Packet Analyzer",
+        "tag": "NETWORK PACKET ANALYZER",
+        "sub": "Network packet analyzer and traffic inspector for deep protocol inspection and network diagnostics",
+        "accent_color": "#16a085",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(22, 160, 133, 0.32) 0%, rgba(22, 160, 133, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(22, 160, 133, 0.24) 0%, rgba(18, 27, 25, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(22, 160, 133, 0.40)",
+        "icon": "wireshark",
+        "source": "pacman",
+    },
+    "tailscale": {
+        "title": "Tailscale Mesh VPN",
+        "tag": "ZERO-CONFIG MESH VPN",
+        "sub": "Zero config mesh VPN for secure peer-to-peer device networks built upon modern WireGuard protocols",
+        "accent_color": "#4a69bd",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(74, 105, 189, 0.32) 0%, rgba(74, 105, 189, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(74, 105, 189, 0.24) 0%, rgba(19, 23, 34, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(74, 105, 189, 0.40)",
+        "icon": "network-vpn",
+        "source": "pacman",
+    },
+    "wireguard-tools": {
+        "title": "WireGuard",
+        "tag": "CRYPTOGRAPHIC VPN TUNNEL",
+        "sub": "Extremely fast, modern cryptographic network tunnel with peer-to-peer simplicity and minimal overhead",
+        "accent_color": "#8854d0",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(136, 84, 208, 0.32) 0%, rgba(136, 84, 208, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(136, 84, 208, 0.24) 0%, rgba(24, 19, 32, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(136, 84, 208, 0.40)",
+        "icon": "network-vpn",
+        "source": "pacman",
+    },
+    "thunderbird": {
+        "title": "Thunderbird Mail",
+        "tag": "ENTERPRISE EMAIL & CALENDAR",
+        "sub": "Feature-packed email, calendar, and contacts client with advanced privacy and OpenPGP encryption",
+        "accent_color": "#0984e3",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(9, 132, 227, 0.32) 0%, rgba(9, 132, 227, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(9, 132, 227, 0.24) 0%, rgba(18, 26, 38, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(9, 132, 227, 0.40)",
+        "icon": "thunderbird",
+        "source": "pacman",
+    },
+    "bleachbit": {
+        "title": "BleachBit Cleaner",
+        "tag": "PRIVACY CLEANER & SHREDDER",
+        "sub": "Clean caches, free disk space, and guard privacy with deep system scrubbing and file shredding",
+        "accent_color": "#e74c3c",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(231, 76, 60, 0.32) 0%, rgba(231, 76, 60, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(231, 76, 60, 0.24) 0%, rgba(28, 19, 20, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(231, 76, 60, 0.40)",
+        "icon": "bleachbit",
+        "source": "pacman",
+    },
+
+    # Productivity
+    "libreoffice-fresh": {
+        "title": "LibreOffice Fresh",
+        "tag": "OFFICE PRODUCTIVITY SUITE",
+        "sub": "Comprehensive enterprise-grade office productivity suite compatible with Microsoft Office formats",
+        "accent_color": "#18a058",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(24, 160, 88, 0.32) 0%, rgba(24, 160, 88, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(24, 160, 88, 0.24) 0%, rgba(18, 27, 21, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(24, 160, 88, 0.40)",
+        "icon": "libreoffice-main",
+        "source": "pacman",
+    },
+    "obsidian": {
+        "title": "Obsidian",
+        "tag": "KNOWLEDGE REVOLUTION",
+        "sub": "Second brain and knowledge graph application storing linked markdown notes locally on your filesystem",
+        "accent_color": "#7c3aed",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(124, 58, 237, 0.32) 0%, rgba(124, 58, 237, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(124, 58, 237, 0.24) 0%, rgba(24, 19, 34, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(124, 58, 237, 0.40)",
+        "icon": "obsidian",
+        "source": "aur",
+    },
+    "krita": {
+        "title": "Krita Digital Painting",
+        "tag": "DIGITAL ART STUDIO",
+        "sub": "Professional digital painting and illustration studio with world-class brush engines and stabilizers",
+        "accent_color": "#f368e0",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(243, 104, 224, 0.32) 0%, rgba(243, 104, 224, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(243, 104, 224, 0.24) 0%, rgba(30, 20, 28, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(243, 104, 224, 0.40)",
+        "icon": "krita",
+        "source": "pacman",
+    },
+    "joplin-desktop": {
+        "title": "Joplin Notes",
+        "tag": "ENCRYPTED CLOUD NOTES",
+        "sub": "Secure, open-source note-taking and to-do application with end-to-end encrypted synchronization",
+        "accent_color": "#1b6ac9",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(27, 106, 201, 0.32) 0%, rgba(27, 106, 201, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(27, 106, 201, 0.24) 0%, rgba(18, 24, 34, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(27, 106, 201, 0.40)",
+        "icon": "joplin",
+        "source": "aur",
+    },
+    "onlyoffice-bin": {
+        "title": "OnlyOffice Docs",
+        "tag": "COLLABORATIVE DOCS",
+        "sub": "High-compatibility office suite featuring collaborative document, spreadsheet, and slide editing",
+        "accent_color": "#ff6f59",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(255, 111, 89, 0.32) 0%, rgba(255, 111, 89, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(255, 111, 89, 0.24) 0%, rgba(30, 21, 20, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(255, 111, 89, 0.40)",
+        "icon": "onlyoffice-desktopeditors",
+        "source": "aur",
+    },
+    "anytype-bin": {
+        "title": "Anytype Workspace",
+        "tag": "DECENTRALIZED WORKSPACE",
+        "sub": "Next-generation private knowledge base and decentralized operating space for personal ideas and wikis",
+        "accent_color": "#f59e0b",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(245, 158, 11, 0.32) 0%, rgba(245, 158, 11, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(245, 158, 11, 0.24) 0%, rgba(28, 24, 18, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(245, 158, 11, 0.40)",
+        "icon": "anytype",
+        "source": "aur",
+    },
+    "foliate": {
+        "title": "Foliate Reader",
+        "tag": "ELEGANT EBOOK READER",
+        "sub": "Modern, distraction-free ebook reader with custom typography, annotations, and dictionary lookup",
+        "accent_color": "#10b981",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(16, 185, 129, 0.32) 0%, rgba(16, 185, 129, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(16, 185, 129, 0.24) 0%, rgba(18, 28, 24, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(16, 185, 129, 0.40)",
+        "icon": "com.github.johnfactotum.Foliate",
+        "source": "pacman",
+    },
+    "thunar": {
+        "title": "Thunar File Manager",
+        "tag": "LIGHTWEIGHT FILE MANAGER",
+        "sub": "Fast lightweight desktop file manager with clean modern interface and custom action plugins",
+        "accent_color": "#3498db",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(52, 152, 219, 0.32) 0%, rgba(52, 152, 219, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(52, 152, 219, 0.24) 0%, rgba(18, 26, 35, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(52, 152, 219, 0.40)",
+        "icon": "org.xfce.thunar",
+        "source": "pacman",
+    },
+    "micro": {
+        "title": "Micro Editor",
+        "tag": "INTUITIVE TERMINAL EDITOR",
+        "sub": "Intuitive terminal text editor with full mouse support, multi-cursors, and syntax highlighting",
+        "accent_color": "#fdcb6e",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(253, 203, 110, 0.32) 0%, rgba(253, 203, 110, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(253, 203, 110, 0.24) 0%, rgba(30, 26, 18, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(253, 203, 110, 0.40)",
+        "icon": "micro",
+        "source": "pacman",
+    },
+    "evince": {
+        "title": "Evince Document Viewer",
+        "tag": "UNIVERSAL DOCUMENT VIEWER",
+        "sub": "Clean, high-performance document viewer for PDF, PostScript, and DjVu with text search",
+        "accent_color": "#d63031",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(214, 48, 49, 0.32) 0%, rgba(214, 48, 49, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(214, 48, 49, 0.24) 0%, rgba(28, 18, 18, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(214, 48, 49, 0.40)",
+        "icon": "org.gnome.Evince",
+        "source": "pacman",
+    },
+
+    # System
+    "btop": {
+        "title": "Btop Resource Monitor",
+        "tag": "SYSTEM SPOTLIGHT",
+        "sub": "Stunning aesthetic terminal monitor tracking CPU, GPU, memory, disks, and network with live graphs",
+        "accent_color": "#ff5370",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(255, 83, 112, 0.32) 0%, rgba(255, 83, 112, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(255, 83, 112, 0.24) 0%, rgba(30, 20, 23, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(255, 83, 112, 0.40)",
+        "icon": "btop",
+        "source": "pacman",
+    },
+    "timeshift": {
+        "title": "Timeshift System Restore",
+        "tag": "SYSTEM RESTORE ENGINE",
+        "sub": "Rock-solid system snapshot utility protecting your OS files using incremental BTRFS and RSYNC backups",
+        "accent_color": "#e056fd",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(224, 86, 253, 0.32) 0%, rgba(224, 86, 253, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(224, 86, 253, 0.24) 0%, rgba(28, 20, 30, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(224, 86, 253, 0.40)",
+        "icon": "timeshift",
+        "source": "pacman",
+    },
+    "fastfetch": {
+        "title": "Fastfetch",
+        "tag": "BLAZING HARDWARE INFO",
+        "sub": "Lightning-fast, highly customizable modern system information display written in performant C",
+        "accent_color": "#00b894",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(0, 184, 148, 0.32) 0%, rgba(0, 184, 148, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(0, 184, 148, 0.24) 0%, rgba(18, 28, 25, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(0, 184, 148, 0.40)",
+        "icon": "fastfetch",
+        "source": "pacman",
+    },
+    "gparted": {
+        "title": "GParted Partition Editor",
+        "tag": "PARTITION ARCHITECT",
+        "sub": "Graphical partition editor to resize, format, check, and reorganize hard drives and SSDs safely",
+        "accent_color": "#f39c12",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(243, 156, 18, 0.32) 0%, rgba(243, 156, 18, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(243, 156, 18, 0.24) 0%, rgba(28, 24, 18, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(243, 156, 18, 0.40)",
+        "icon": "gparted",
+        "source": "pacman",
+    },
+    "stacer-bin": {
+        "title": "Stacer Optimizer",
+        "tag": "SYSTEM CLEANER & DASHBOARD",
+        "sub": "Comprehensive Linux system optimizer, startup manager, and hardware monitoring dashboard",
+        "accent_color": "#3498db",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(52, 152, 219, 0.32) 0%, rgba(52, 152, 219, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(52, 152, 219, 0.24) 0%, rgba(18, 26, 35, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(52, 152, 219, 0.40)",
+        "icon": "stacer",
+        "source": "aur",
+    },
+    "fish": {
+        "title": "Fish Shell",
+        "tag": "SMART INTERACTIVE SHELL",
+        "sub": "Smart user-friendly command line shell with syntax highlighting, autosuggestions, and tab completions",
+        "accent_color": "#9b59b6",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(155, 89, 182, 0.32) 0%, rgba(155, 89, 182, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(155, 89, 182, 0.24) 0%, rgba(26, 20, 30, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(155, 89, 182, 0.40)",
+        "icon": "fish",
+        "source": "pacman",
+    },
+    "htop": {
+        "title": "Htop Process Viewer",
+        "tag": "INTERACTIVE PROCESS MONITOR",
+        "sub": "Cross-platform interactive process viewer, CPU thread inspector, and process kill manager",
+        "accent_color": "#2ecc71",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(46, 204, 113, 0.32) 0%, rgba(46, 204, 113, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(46, 204, 113, 0.24) 0%, rgba(18, 28, 22, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(46, 204, 113, 0.40)",
+        "icon": "htop",
+        "source": "pacman",
+    },
+    "baobab": {
+        "title": "Baobab Disk Analyzer",
+        "tag": "VISUAL DISK USAGE",
+        "sub": "Visual disk usage analyzer graphically displaying folder structures via dynamic rings and treemaps",
+        "accent_color": "#e67e22",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(230, 126, 34, 0.32) 0%, rgba(230, 126, 34, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(230, 126, 34, 0.24) 0%, rgba(25, 23, 20, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(230, 126, 34, 0.40)",
+        "icon": "org.gnome.baobab",
+        "source": "pacman",
+    },
+    "hardinfo-git": {
+        "title": "Hardinfo Hardware Profiler",
+        "tag": "SYSTEM BENCHMARK SUITE",
+        "sub": "System benchmark and hardware information tool reporting CPU modules, PCI devices, and sensors",
+        "accent_color": "#00cec9",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(0, 206, 201, 0.32) 0%, rgba(0, 206, 201, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(0, 206, 201, 0.24) 0%, rgba(18, 28, 28, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(0, 206, 201, 0.40)",
+        "icon": "hardinfo",
+        "source": "aur",
+    },
+    "pavucontrol": {
+        "title": "Volume Control",
+        "tag": "ADVANCED AUDIO ROUTER",
+        "sub": "Audio routing, volume levels, and multi-channel mixer for PipeWire and PulseAudio streams",
+        "accent_color": "#6c5ce7",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(108, 92, 231, 0.32) 0%, rgba(108, 92, 231, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(108, 92, 231, 0.24) 0%, rgba(20, 19, 32, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(108, 92, 231, 0.40)",
+        "icon": "org.pulseaudio.pavucontrol",
+        "source": "pacman",
+    },
+
+    # Essential
+    "firefox": {
+        "title": "Firefox Browser",
+        "tag": "FAST & PRIVATE WEB",
+        "sub": "Fast, independent browser with built-in total cookie protection, container tabs, and fingerprint resistance",
+        "accent_color": "#ff7139",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(255, 113, 57, 0.32) 0%, rgba(255, 113, 57, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(255, 113, 57, 0.24) 0%, rgba(26, 18, 28, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(255, 113, 57, 0.40)",
+        "icon": "firefox",
+        "source": "pacman",
+    },
+    "discord": {
+        "title": "Discord",
+        "tag": "COMMUNITY VOICE & CHAT",
+        "sub": "All-in-one low-latency voice, video, and text communication for communities and gaming squads",
+        "accent_color": "#5865f2",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(88, 101, 242, 0.32) 0%, rgba(88, 101, 242, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(88, 101, 242, 0.24) 0%, rgba(20, 22, 36, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(88, 101, 242, 0.40)",
+        "icon": "discord",
+        "source": "pacman",
+    },
+    "telegram-desktop": {
+        "title": "Telegram Desktop",
+        "tag": "INSTANT CLOUD MESSAGING",
+        "sub": "Blazing fast cloud messaging client with instant synchronization, giant channels, and voice chats",
+        "accent_color": "#0088cc",
+        "bg": "radial-gradient(circle at 82% 50%, rgba(0, 136, 204, 0.32) 0%, rgba(0, 136, 204, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(0, 136, 204, 0.24) 0%, rgba(18, 26, 34, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(0, 136, 204, 0.40)",
+        "icon": "telegram",
         "source": "pacman",
     },
 }
+FEATURED_APP_METADATA = FEATURED_APP_PRESETS
 
 FEATURED_CATEGORY_PRIORITIES: Dict[str, List[str]] = {
     "media": [
@@ -620,7 +926,7 @@ FEATURED_CATEGORY_PRIORITIES: Dict[str, List[str]] = {
     ],
     "games": [
         "steam", "heroic-games-launcher-bin", "lutris", "retroarch",
-        "prismlauncher", "bottles", "gamemode", "ryujinx-bin", "mangohud", "wine", "discord"
+        "prismlauncher", "bottles", "gamemode", "ryujinx-bin", "mangohud", "wine", "discord", "obs-studio"
     ],
     "privacy": [
         "proton-vpn-gtk-app", "brave-bin", "signal-desktop", "keepassxc",
@@ -628,11 +934,11 @@ FEATURED_CATEGORY_PRIORITIES: Dict[str, List[str]] = {
     ],
     "productivity": [
         "libreoffice-fresh", "obsidian", "krita", "joplin-desktop",
-        "onlyoffice-bin", "anytype-bin", "foliate", "micro", "evince", "thunar", "fastfetch"
+        "onlyoffice-bin", "anytype-bin", "foliate", "micro", "evince", "thunar", "fastfetch", "pavucontrol"
     ],
     "system": [
         "btop", "timeshift", "fastfetch", "gparted",
-        "stacer-bin", "fish", "htop", "baobab", "hardinfo-git"
+        "stacer-bin", "fish", "htop", "baobab", "hardinfo-git", "pavucontrol", "kitty", "alacritty"
     ],
     "essential": [
         "firefox", "discord", "telegram-desktop", "spotify",
@@ -660,8 +966,8 @@ CATEGORY_ACCENT_DEFAULTS: Dict[str, str] = {
     "essential": "#30d158",
 }
 
-def _color_to_gradient_and_border(hex_color: str, alpha_bg: float = 0.28, alpha_border: float = 0.45) -> Tuple[str, str]:
-    """Generate modern atmospheric gradient background and subtle accent border from hex color."""
+def _color_to_gradient_and_border(hex_color: str, alpha_bg: float = 0.24, alpha_border: float = 0.42) -> Tuple[str, str]:
+    """Generate modern atmospheric gradient background with radial glow and subtle accent border from hex color."""
     h = hex_color.lstrip("#")
     if len(h) == 6:
         try:
@@ -672,7 +978,10 @@ def _color_to_gradient_and_border(hex_color: str, alpha_bg: float = 0.28, alpha_
             r, g, b = (10, 132, 255)
     else:
         r, g, b = (10, 132, 255)
-    bg = f"linear-gradient(135deg, rgba({r}, {g}, {b}, {alpha_bg}) 0%, rgba(20, 24, 33, 0.95) 100%)"
+    bg = (
+        f"radial-gradient(circle at 82% 50%, rgba({r}, {g}, {b}, 0.32) 0%, rgba({r}, {g}, {b}, 0.05) 50%, transparent 75%), "
+        f"linear-gradient(135deg, rgba({r}, {g}, {b}, {alpha_bg}) 0%, rgba(20, 24, 33, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)"
+    )
     border = f"rgba({r}, {g}, {b}, {alpha_border})"
     return bg, border
 
@@ -1355,13 +1664,19 @@ class PackageManager:
         self._lock = threading.Lock()
         self._aur_cache: Dict[str, List[Dict[str, Any]]] = {}
         self.is_loaded = False
-        self.active_transaction: Optional[str] = None
+        self.active_transaction: Optional[Dict[str, Any]] = None
+        self._last_progress: float = 0.0
+        self._action_lock = threading.Lock()
         self.is_checking_updates = False
         self.updates_checked = False
         self.container_mgr = ContainerManager()
         # Load installed packages synchronously so cards immediately reflect installed status
         self.refresh_installed()
-        self._featured_rotation_offset: int = int(time.time() / 1800) % 20
+        # Persistent rotating featured apps state
+        state = _load_featured_state()
+        self._featured_rotation_offset: int = (state.get("offset", 0) + 1) % 50
+        self._last_featured_shown: List[str] = list(state.get("last_shown", []))
+        _save_featured_state(self._featured_rotation_offset, self._last_featured_shown)
         self._current_featured_apps: Optional[List[Dict[str, Any]]] = None
 
     def refresh_installed(self):
@@ -1403,91 +1718,71 @@ class PackageManager:
                 return True
         return False
 
-    def get_dynamic_featured_apps(self, count: int = 5) -> List[Dict[str, Any]]:
+    def get_active_transaction(self) -> Optional[Dict[str, Any]]:
+        """Returns a copy of self.active_transaction safely under lock."""
+        with self._action_lock:
+            if self.active_transaction is not None:
+                return dict(self.active_transaction)
+            return None
+
+    def is_pkg_installing(self, pkg_name: str) -> bool:
         """
-        Dynamically return high-impact featured spotlight applications with curated
-        metadata, authentic tags, descriptions, and custom atmospheric palettes.
+        Returns True if self.active_transaction exists and matches pkg_name
+        (or if action is 'update'/'upgrade' and pkg_name is in transaction).
         """
-        candidates = [
-            {
-                "id": "blender",
-                "source": "pacman",
-                "tag": "FEATURED 3D STUDIO",
-                "title": "Blender 3D Studio",
-                "sub": "Unleash next-gen modeling, animation, physics simulation, and real-time photorealistic rendering",
-                "bg": "radial-gradient(circle at 80% 50%, rgba(235, 119, 0, 0.30) 0%, rgba(235, 119, 0, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(235, 119, 0, 0.22) 0%, rgba(20, 24, 32, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
-                "border": "rgba(235, 119, 0, 0.38)",
-                "icon": "blender",
-                "color": "#eb7700",
-            },
-            {
-                "id": "code",
-                "source": "pacman",
-                "tag": "DEVELOPER SPOTLIGHT",
-                "title": "Visual Studio Code",
-                "sub": "The world's most versatile code editor with intelligent autocompletion and rich language tooling",
-                "bg": "radial-gradient(circle at 80% 50%, rgba(0, 122, 204, 0.30) 0%, rgba(0, 122, 204, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(0, 122, 204, 0.25) 0%, rgba(18, 24, 34, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
-                "border": "rgba(0, 122, 204, 0.38)",
-                "icon": "code",
-                "color": "#007acc",
-            },
-            {
-                "id": "steam",
-                "source": "pacman",
-                "tag": "PRO GAMING PLATFORM",
-                "title": "Steam on Linux",
-                "sub": "Play thousands of native and Windows titles with seamless Proton performance and community integration",
-                "bg": "radial-gradient(circle at 80% 50%, rgba(102, 192, 244, 0.30) 0%, rgba(102, 192, 244, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(23, 29, 37, 0.6) 0%, rgba(102, 192, 244, 0.22) 45%, rgba(13, 17, 23, 0.98) 100%)",
-                "border": "rgba(102, 192, 244, 0.38)",
-                "icon": "steam",
-                "color": "#66c0f4",
-            },
-            {
-                "id": "obs-studio",
-                "source": "pacman",
-                "tag": "BROADCAST ESSENTIAL",
-                "title": "OBS Studio",
-                "sub": "Stream high-definition gameplay and record pristine multi-source desktop broadcasts",
-                "bg": "radial-gradient(circle at 80% 50%, rgba(163, 113, 247, 0.30) 0%, rgba(163, 113, 247, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(48, 54, 61, 0.4) 0%, rgba(163, 113, 247, 0.24) 55%, rgba(13, 17, 23, 0.98) 100%)",
-                "border": "rgba(163, 113, 247, 0.38)",
-                "icon": "obs-studio",
-                "color": "#a371f7",
-            },
-            {
-                "id": "proton-vpn-gtk-app",
-                "source": "pacman",
-                "tag": "SECURITY & PRIVACY",
-                "title": "Proton VPN",
-                "sub": "High-speed encrypted WireGuard VPN tunnel with strict zero-logging and built-in Kill Switch",
-                "bg": "radial-gradient(circle at 80% 50%, rgba(109, 74, 255, 0.30) 0%, rgba(109, 74, 255, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(109, 74, 255, 0.25) 0%, rgba(20, 20, 35, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
-                "border": "rgba(109, 74, 255, 0.38)",
-                "icon": "proton-vpn-gtk-app",
-                "color": "#6d4aff",
-            },
-            {
-                "id": "firefox",
-                "source": "pacman",
-                "tag": "FAST & PRIVATE",
-                "title": "Mozilla Firefox",
-                "sub": "High-performance privacy browser with enhanced tracking protection and minimal system overhead",
-                "bg": "radial-gradient(circle at 80% 50%, rgba(255, 113, 57, 0.30) 0%, rgba(255, 113, 57, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(255, 113, 57, 0.22) 0%, rgba(26, 18, 28, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
-                "border": "rgba(255, 113, 57, 0.38)",
-                "icon": "firefox",
-                "color": "#ff7139",
-            },
-            {
-                "id": "gimp",
-                "source": "pacman",
-                "tag": "CREATIVE SUITE",
-                "title": "GIMP Image Studio",
-                "sub": "Professional-grade photo retouching, graphic design, and advanced raster composition",
-                "bg": "radial-gradient(circle at 80% 50%, rgba(92, 158, 173, 0.30) 0%, rgba(92, 158, 173, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(92, 158, 173, 0.22) 0%, rgba(18, 26, 30, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
-                "border": "rgba(92, 158, 173, 0.38)",
-                "icon": "gimp",
-                "color": "#5c9ead",
-            },
-        ]
-        return candidates[:count]
+        if not pkg_name:
+            return False
+        target = pkg_name.strip().lower()
+        with self._action_lock:
+            if not self.active_transaction:
+                return False
+            tx_pkg = (self.active_transaction.get("pkg_name") or "").strip().lower()
+            if tx_pkg == target:
+                return True
+            pkgs = self.active_transaction.get("packages")
+            if isinstance(pkgs, (list, set, tuple)):
+                if any(isinstance(p, str) and p.strip().lower() == target for p in pkgs):
+                    return True
+            action = (self.active_transaction.get("action") or "").lower()
+            if action in ["update", "upgrade"]:
+                if tx_pkg in ["system", "--all", "all", "", None]:
+                    if target in ["system", "--all", "all", ""]:
+                        return True
+                    with self._lock:
+                        if any(u.get("name", "").strip().lower() == target for u in self.upgradable_list):
+                            return True
+            return False
+
+    def get_active_progress(self, pkg_name: Optional[str] = None) -> Tuple[float, str]:
+        """
+        Returns (progress_fraction, status_msg) for the active transaction,
+        or (0.0, "") if none.
+        """
+        with self._action_lock:
+            if not self.active_transaction:
+                return (0.0, "")
+            if pkg_name is not None:
+                target = pkg_name.strip().lower()
+                tx_pkg = (self.active_transaction.get("pkg_name") or "").strip().lower()
+                matches = (tx_pkg == target)
+                if not matches:
+                    pkgs = self.active_transaction.get("packages")
+                    if isinstance(pkgs, (list, set, tuple)):
+                        matches = any(isinstance(p, str) and p.strip().lower() == target for p in pkgs)
+                    if not matches:
+                        action = (self.active_transaction.get("action") or "").lower()
+                        if action in ["update", "upgrade"]:
+                            if tx_pkg in ["system", "--all", "all", "", None]:
+                                if target in ["system", "--all", "all", ""]:
+                                    matches = True
+                                else:
+                                    with self._lock:
+                                        matches = any(u.get("name", "").strip().lower() == target for u in self.upgradable_list)
+                if not matches:
+                    return (0.0, "")
+            prog = float(self.active_transaction.get("progress", self._last_progress))
+            msg = str(self.active_transaction.get("status_msg") or self.active_transaction.get("status") or "")
+            return (prog, msg)
 
     def get_installed_desktop_apps(self) -> List[Dict[str, Any]]:
         """Return list of real installed desktop applications with .desktop launchers."""
@@ -1572,7 +1867,7 @@ class PackageManager:
 
     def _format_featured_app(self, app_id: str, cat_id: str = "", app_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Produce rich editorial metadata for a featured application."""
-        curated = FEATURED_APP_METADATA.get(app_id)
+        curated = FEATURED_APP_PRESETS.get(app_id) or FEATURED_APP_METADATA.get(app_id)
         if curated:
             accent_color = curated.get("accent_color", CATEGORY_ACCENT_DEFAULTS.get(cat_id, "#0a84ff"))
             def_bg, def_border = _color_to_gradient_and_border(accent_color)
@@ -1592,6 +1887,7 @@ class PackageManager:
                 "bg": bg,
                 "border": border,
                 "accent_color": accent_color,
+                "color": accent_color,
                 "icon": icon,
                 "is_installed": self.is_installed(app_id),
             }
@@ -1619,6 +1915,7 @@ class PackageManager:
             "bg": bg,
             "border": border,
             "accent_color": accent_color,
+            "color": accent_color,
             "icon": icon,
             "is_installed": self.is_installed(app_id),
         }
@@ -1633,14 +1930,15 @@ class PackageManager:
         """
         Dynamically select 5-6 exciting, varied featured applications across diverse
         categories from the 84+ application catalog with rich editorial styling.
-        Allows dynamic rotation or refreshing on each invocation.
+        Guarantees distinct categories, non-overlapping consecutive launches,
+        and dynamically updated installed state.
         """
         if count <= 0:
             count = 5
 
         # Handle rotation or refresh requests
         if refresh or rotate:
-            self._featured_rotation_offset = (self._featured_rotation_offset + 1) % 20
+            self._featured_rotation_offset = (self._featured_rotation_offset + 1) % 50
             self._current_featured_apps = None
 
         if self._current_featured_apps is not None and not refresh and not rotate and seed is None:
@@ -1655,13 +1953,13 @@ class PackageManager:
         # Build category map from CURATED_CATEGORIES
         cat_map = {cat["id"]: cat for cat in CURATED_CATEGORIES}
 
-        # Diverse category ordering: 1 Creative/Media, 1 Dev, 1 Gaming, 1 Privacy, 1 Productivity, 1 System, 1 Essential
+        # 7 distinct core categories rotating each launch
         core_categories = ["media", "dev", "games", "privacy", "productivity", "system", "essential"]
-        cat_shift = (offset // len(core_categories)) % len(core_categories)
-        rotated_cats = [core_categories[(cat_shift + i) % len(core_categories)] for i in range(len(core_categories))]
-        chosen_cats = rotated_cats[:count]
+        cat_start = offset % len(core_categories)
+        chosen_cats = [core_categories[(cat_start + i) % len(core_categories)] for i in range(min(count, len(core_categories)))]
 
         seen_ids: Set[str] = set()
+        last_shown_set = set(self._last_featured_shown)
         featured_apps: List[Dict[str, Any]] = []
 
         for cat_id in chosen_cats:
@@ -1675,20 +1973,32 @@ class PackageManager:
             if cat_id in cat_map:
                 app_dict = {a["name"]: a for a in cat_map[cat_id]["apps"]}
 
+            cat_pos = core_categories.index(cat_id) if cat_id in core_categories else 0
+            base_idx = (offset * 3 + cat_pos * 2) % len(cands)
+
             chosen_pkg = None
+            # Pass 1: candidate not in seen_ids and not in last_shown
             for step in range(len(cands)):
-                cand_pkg = cands[(offset + step) % len(cands)]
-                if cand_pkg not in seen_ids:
+                cand_pkg = cands[(base_idx + step) % len(cands)]
+                if cand_pkg not in seen_ids and cand_pkg not in last_shown_set:
                     chosen_pkg = cand_pkg
-                    seen_ids.add(cand_pkg)
                     break
 
+            # Pass 2: fallback to any candidate not in seen_ids
+            if not chosen_pkg:
+                for step in range(len(cands)):
+                    cand_pkg = cands[(base_idx + step) % len(cands)]
+                    if cand_pkg not in seen_ids:
+                        chosen_pkg = cand_pkg
+                        break
+
             if chosen_pkg:
+                seen_ids.add(chosen_pkg)
                 app_info = app_dict.get(chosen_pkg)
                 slide_meta = self._format_featured_app(chosen_pkg, cat_id=cat_id, app_info=app_info)
                 featured_apps.append(slide_meta)
 
-        # Fallback if fewer than count were picked
+        # Fallback if fewer than count were picked (e.g. if count > 7)
         if len(featured_apps) < count:
             for cat in CURATED_CATEGORIES:
                 cat_id = cat["id"]
@@ -1704,6 +2014,9 @@ class PackageManager:
 
         if seed is None:
             self._current_featured_apps = featured_apps
+            new_ids = [a["id"] for a in featured_apps]
+            self._last_featured_shown = (self._last_featured_shown + new_ids)[-10:]
+            _save_featured_state(self._featured_rotation_offset, self._last_featured_shown)
 
         return featured_apps
 
@@ -2169,6 +2482,7 @@ class PackageManager:
             except Exception:
                 return False
 
+
     def execute_background_action(
         self,
         action: str,
@@ -2180,14 +2494,43 @@ class PackageManager:
         """
         Run installation, removal, or upgrade in background without terminal popups.
         """
+        is_system_upgrade = pkg_name in ["system", "--all", "all", ""] or not pkg_name
+
+        with self._action_lock:
+            self.active_transaction = {
+                "action": action,
+                "pkg_name": pkg_name,
+                "source": source,
+                "progress": 0.06,
+                "status": "Authenticating & preparing...",
+                "status_msg": "Authenticating & preparing...",
+                "start_time": time.time(),
+            }
+            if action in ["upgrade", "update"] and is_system_upgrade:
+                with self._lock:
+                    self.active_transaction["packages"] = [u.get("name") for u in self.upgradable_list if u.get("name")]
+            elif pkg_name:
+                self.active_transaction["packages"] = [pkg_name]
+            self._last_progress = 0.06
+
+        def _safe_progress(target_frac: float, msg: str):
+            with self._action_lock:
+                frac = max(self._last_progress, min(0.98, target_frac))
+                self._last_progress = frac
+                if isinstance(self.active_transaction, dict):
+                    self.active_transaction["progress"] = frac
+                    self.active_transaction["status"] = msg
+                    self.active_transaction["status_msg"] = msg
+            progress_cb(frac, msg)
+
+        _report_prog = _safe_progress
+
         def _worker():
-            self.active_transaction = pkg_name
             env = os.environ.copy()
             if ASKPASS_SCRIPT.exists():
                 env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
             env["LC_ALL"] = "C"
 
-            is_system_upgrade = pkg_name in ["system", "--all", "all", ""] or not pkg_name
             if action in ["upgrade", "update"]:
                 if is_system_upgrade:
                     if shutil.which("paru"):
@@ -2209,9 +2552,13 @@ class PackageManager:
             else:
                 cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", pkg_name]
 
-            progress_cb(0.08, "Authenticating & preparing...")
+            _safe_progress(0.06, "Authenticating & preparing...")
 
             error_lines = []
+            total_packages = 1
+            downloaded_count = 0
+            installed_count = 0
+
             try:
                 proc = subprocess.Popen(
                     cmd,
@@ -2228,25 +2575,79 @@ class PackageManager:
                         continue
                     l_lower = clean.lower()
 
-                    if "error" in l_lower or "failed" in l_lower:
+                    if "error:" in l_lower or "failed" in l_lower:
                         error_lines.append(clean)
 
-                    if "resolving dependencies" in l_lower:
-                        progress_cb(0.18, "Resolving dependencies...")
-                    elif "looking for conflicting" in l_lower:
-                        progress_cb(0.24, "Checking for conflicts...")
-                    elif "checking keyring" in l_lower:
-                        progress_cb(0.32, "Checking keyring...")
-                    elif "checking package integrity" in l_lower:
-                        progress_cb(0.42, "Verifying package integrity...")
-                    elif "retrieving packages" in l_lower or "downloading" in l_lower:
-                        progress_cb(0.58, f"Downloading package files...")
-                    elif "checking available disk space" in l_lower:
-                        progress_cb(0.70, "Checking disk space...")
-                    elif "installing" in l_lower or "processing package" in l_lower:
-                        progress_cb(0.85, f"Installing {pkg_name}...")
-                    elif "post-transaction hooks" in l_lower or "running hooks" in l_lower:
-                        progress_cb(0.94, "Finalizing installation...")
+                    pkg_match = re.search(r'packages\s*\(\s*(\d+)\s*\)', l_lower)
+                    if pkg_match:
+                        total_packages = max(total_packages, int(pkg_match.group(1)))
+
+                    idx_match = re.search(r'\((\d+)/(\d+)\)', clean)
+                    cur_idx = 0
+                    if idx_match:
+                        cur_idx = int(idx_match.group(1))
+                        tot_idx = int(idx_match.group(2))
+                        total_packages = max(total_packages, tot_idx)
+
+                    # Multi-stage monotonic progression (Guarantees progress ONLY moves forward)
+                    if "resolving dependencies" in l_lower or "calculating dependencies" in l_lower:
+                        _safe_progress(0.16, "Resolving package dependencies...")
+                    elif (
+                        "checking keyring" in l_lower
+                        or "checking keys in keyring" in l_lower
+                        or "package integrity" in l_lower
+                        or "verifying package integrity" in l_lower
+                        or "loading package files" in l_lower
+                    ):
+                        _safe_progress(0.26, "Checking package integrity & keyring...")
+                    elif (
+                        "looking for conflicting" in l_lower
+                        or "checking for conflicting" in l_lower
+                        or "file conflicts" in l_lower
+                        or "available disk space" in l_lower
+                        or "verifying disk space" in l_lower
+                    ):
+                        _safe_progress(0.38, "Verifying disk space & conflicts...")
+                    elif "retrieving packages" in l_lower or "downloading" in l_lower or ".pkg.tar." in l_lower:
+                        downloaded_count = max(downloaded_count + 1, cur_idx if cur_idx else downloaded_count + 1)
+                        dl_stage = min(0.68, 0.40 + (downloaded_count / max(1, total_packages)) * 0.28)
+                        dl_msg = (
+                            f"Downloading package files... ({downloaded_count}/{total_packages})"
+                            if total_packages > 1
+                            else "Downloading package files..."
+                        )
+                        _safe_progress(dl_stage, dl_msg)
+                    elif (
+                        "installing" in l_lower
+                        or "processing package" in l_lower
+                        or "upgrading" in l_lower
+                        or "reinstalling" in l_lower
+                        or (action == "remove" and "removing" in l_lower)
+                    ):
+                        installed_count = max(installed_count + 1, cur_idx if cur_idx else installed_count + 1)
+                        inst_stage = min(0.90, 0.72 + (installed_count / max(1, total_packages)) * 0.18)
+                        if action == "remove":
+                            inst_msg = f"Removing {pkg_name}..."
+                        elif pkg_name and total_packages <= 1 and not is_system_upgrade:
+                            inst_msg = f"Installing {pkg_name}..."
+                        else:
+                            inst_msg = f"Installing packages... ({installed_count}/{total_packages})"
+                        _safe_progress(inst_stage, inst_msg)
+                    elif (
+                        "post-transaction hooks" in l_lower
+                        or "running hooks" in l_lower
+                        or "running post-transaction" in l_lower
+                    ):
+                        _safe_progress(0.92, "Running post-transaction desktop hooks...")
+                    elif (
+                        "conditionneedsupdate" in l_lower
+                        or "desktop file" in l_lower
+                        or "mime" in l_lower
+                        or "icon" in l_lower
+                        or "font" in l_lower
+                        or "finalizing" in l_lower
+                    ):
+                        _safe_progress(0.96, "Finalizing application environment...")
 
                 proc.wait()
                 success = proc.returncode == 0
@@ -2267,22 +2668,42 @@ class PackageManager:
                                 except Exception:
                                     pass
                     self.refresh_installed()
-                    self.active_transaction = None
-                    progress_cb(1.0, "Completed!")
+                    with self._action_lock:
+                        if self.active_transaction:
+                            self.active_transaction["progress"] = 1.0
+                            self.active_transaction["status"] = "Installation complete!"
+                            self.active_transaction["status_msg"] = "Installation complete!"
+                    progress_cb(1.0, "Installation complete!")
                     complete_cb(True, action, pkg_name, "")
                     # Background check for remaining updates
                     threading.Thread(target=self.check_updates, daemon=True).start()
+
+                    target_tx = self.active_transaction
+                    def _clear_tx():
+                        time.sleep(1.0)
+                        with self._action_lock:
+                            if self.active_transaction is target_tx:
+                                self.active_transaction = None
+                                self._last_progress = 0.0
+
+                    threading.Thread(target=_clear_tx, daemon=True).start()
                 else:
-                    self.active_transaction = None
                     err_msg = "\n".join(error_lines[-3:]) if error_lines else f"Exited with code {proc.returncode}"
                     if any("password" in l.lower() or "auth" in l.lower() for l in error_lines):
                         PackageManager.clear_auth_cache()
+                    with self._action_lock:
+                        self.active_transaction = None
+                        self._last_progress = 0.0
                     progress_cb(0.0, f"Error: {err_msg}")
                     complete_cb(False, action, pkg_name, err_msg)
 
             except Exception as e:
-                self.active_transaction = None
-                complete_cb(False, action, pkg_name, str(e))
+                err_msg = str(e)
+                with self._action_lock:
+                    self.active_transaction = None
+                    self._last_progress = 0.0
+                progress_cb(0.0, f"Error: {err_msg}")
+                complete_cb(False, action, pkg_name, err_msg)
 
         threading.Thread(target=_worker, daemon=True).start()
 

@@ -51,6 +51,17 @@ def create_scaled_image(icon_target: str, size: int = 40) -> Gtk.Image:
 
 # Authentic Apple Mac App Store Design System CSS
 APPLE_CSS = """
+/* Keyframe Shimmer Animations */
+@keyframes mac-pulse {
+    0% { opacity: 0.6; }
+    50% { opacity: 1.0; }
+    100% { opacity: 0.6; }
+}
+
+.mac-loading-shimmer {
+    animation: mac-pulse 1.8s ease-in-out infinite;
+}
+
 /* Base Window & Typography */
 window.background {
     background-color: #0e0f14;
@@ -120,7 +131,7 @@ scrolledwindow viewport {
     border: 1px solid rgba(255, 255, 255, 0.14);
     color: #e0e0e6;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-    transition: all 120ms ease;
+    transition: all 150ms ease;
 }
 
 .mac-win-btn:hover {
@@ -134,6 +145,11 @@ scrolledwindow viewport {
     color: #ffffff;
     border-color: #ff453a;
     box-shadow: 0 1px 4px rgba(255, 69, 58, 0.25);
+}
+
+.mac-win-close:hover, .mac-win-min:hover, .mac-win-max:hover {
+    transform: scale(1.15);
+    transition: transform 150ms ease;
 }
 
 .mac-header-title {
@@ -199,7 +215,7 @@ scrolledwindow viewport {
     font-size: 12.5px;
     font-weight: 500;
     color: #98989d;
-    transition: all 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .mac-nav-item:active {
@@ -207,7 +223,8 @@ scrolledwindow viewport {
 }
 
 .mac-nav-item:hover {
-    background-color: rgba(255, 255, 255, 0.06);
+    transform: translateX(3px);
+    background-color: rgba(255, 255, 255, 0.07);
     color: #ffffff;
 }
 
@@ -246,6 +263,16 @@ scrolledwindow viewport {
 }
 
 /* Container Applications Page Components */
+.mac-container-card {
+    transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mac-container-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.18);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
 .mac-container-status-card {
     background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -417,18 +444,23 @@ scrolledwindow viewport {
 }
 
 .mac-hero-squircle {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 22px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.04) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 20px;
     min-width: 88px;
     min-height: 88px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2);
     padding: 0;
     margin: 0;
+    transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mac-hero-squircle:hover {
+    transform: scale(1.04);
 }
 
 .mac-hero-squircle image {
-    margin: auto;
+    margin: 0;
 }
 
 button.mac-hero-nav-btn,
@@ -585,7 +617,7 @@ button.mac-hero-dot-active,
     border-radius: 14px;
     padding: 10px 14px;
     min-height: 72px;
-    transition: all 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 flowboxchild {
@@ -596,7 +628,8 @@ flowboxchild {
 }
 
 .mac-app-row:hover {
-    background: rgba(255, 255, 255, 0.05);
+    transform: translateY(-2px);
+    background-color: rgba(255, 255, 255, 0.08);
     border-color: rgba(255, 255, 255, 0.16);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
@@ -604,6 +637,17 @@ flowboxchild {
 .mac-app-row:active {
     background: rgba(255, 255, 255, 0.07);
     transform: scale(0.985);
+}
+
+/* Curated Category Cards */
+.mac-category-card {
+    transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mac-category-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 }
 
 /* 54x54 Glossy Squircle Icon Container */
@@ -614,6 +658,11 @@ flowboxchild {
     min-width: 54px;
     min-height: 54px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mac-squircle:hover {
+    transform: scale(1.05);
 }
 
 .mac-app-title {
@@ -640,12 +689,19 @@ flowboxchild {
     font-weight: 700;
     letter-spacing: 0.5px;
     border: none;
-    transition: all 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: all 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.mac-btn-get:active, .mac-btn-open:active, .mac-btn-installed:active, .mac-btn-update:active, .mac-btn-uninstall:active {
-    transform: scale(0.94);
-    opacity: 0.9;
+.mac-btn-get:active,
+.mac-btn-open:active,
+.mac-btn-installed:active,
+.mac-btn-update:active,
+.mac-btn-uninstall:active,
+.mac-btn-update-all:active,
+.mac-btn-primary-large:active,
+.mac-btn-detail-open:active,
+.mac-website-btn:active {
+    transform: scale(0.95);
 }
 
 .mac-btn-get {
@@ -744,7 +800,7 @@ flowboxchild {
     letter-spacing: 0.4px;
     border: none;
     box-shadow: 0 1px 4px rgba(255, 159, 10, 0.2);
-    transition: all 140ms ease;
+    transition: all 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .mac-btn-update-all:hover {
@@ -837,9 +893,8 @@ flowboxchild {
     transition: all 140ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.mac-btn-primary-large:active, .mac-btn-detail-open:active, .mac-btn-danger-pill:active, .mac-website-btn:active {
+.mac-btn-danger-pill:active {
     transform: scale(0.95);
-    opacity: 0.9;
 }
 
 .mac-btn-primary-large:hover {
@@ -1148,25 +1203,69 @@ flowboxchild {
     font-size: 12px;
 }
 
+/* Modern Apple Glassmorphic Progress Capsule */
 .progress-card {
-    background: rgba(10, 132, 255, 0.08);
-    border: 1px solid rgba(10, 132, 255, 0.18);
-    border-radius: 14px;
-    padding: 14px 18px;
-    transition: all 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 16px;
+    padding: 16px 20px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+    transition: all 250ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-progressbar > trough {
-    background-color: rgba(255, 255, 255, 0.08);
-    border-radius: 9999px;
-    min-height: 4px;
+.mac-progress-header {
+    margin-bottom: 8px;
 }
 
-progressbar > trough > progress {
-    background: linear-gradient(90deg, #0a84ff, #5ac8fa);
+.mac-progress-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+.mac-progress-percent {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0a84ff;
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
+}
+
+progressbar.mac-capsule-progress {
+    min-height: 8px;
     border-radius: 9999px;
-    min-height: 4px;
-    transition: all 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+progressbar.mac-capsule-progress > trough {
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 9999px;
+    min-height: 8px;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+progressbar.mac-capsule-progress > trough > progress {
+    background: linear-gradient(90deg, #0071e3 0%, #0a84ff 60%, #64d2ff 100%);
+    border-radius: 9999px;
+    min-height: 8px;
+    box-shadow: 0 0 12px rgba(10, 132, 255, 0.5);
+    transition: width 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Floating Header Global Progress Pill */
+.mac-header-progress-pill {
+    background: rgba(10, 132, 255, 0.15);
+    border: 1px solid rgba(10, 132, 255, 0.35);
+    border-radius: 9999px;
+    padding: 4px 12px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #5ac8fa;
+    transition: all 200ms ease;
+}
+.mac-header-progress-pill:hover {
+    background: rgba(10, 132, 255, 0.25);
+    border-color: rgba(10, 132, 255, 0.5);
 }
 
 flowboxchild {
@@ -1268,7 +1367,7 @@ class MacHeroCarousel(Gtk.Overlay):
         if hasattr(self.aura_window, "pm") and self.aura_window.pm:
             try:
                 if hasattr(self.aura_window.pm, "get_dynamic_featured_apps"):
-                    featured = self.aura_window.pm.get_dynamic_featured_apps(count=5)
+                    featured = self.aura_window.pm.get_dynamic_featured_apps(count=5, refresh=True)
             except Exception as e:
                 print(f"[Aura] Error loading dynamic featured apps: {e}", file=sys.stderr)
 
@@ -1288,31 +1387,16 @@ class MacHeroCarousel(Gtk.Overlay):
         self.stack.set_hexpand(True)
         self.stack.set_vexpand(False)
         self.stack.set_size_request(-1, 195)
-
-        for idx, slide in enumerate(self.slides):
-            # Dynamic slide style injection if slide provides custom bg / border
-            bg = slide.get("bg")
-            border = slide.get("border")
-            if bg or border:
-                css_rules = f".mac-hero-slide-{idx} {{"
-                if bg:
-                    css_rules += f" background: {bg};"
-                if border:
-                    css_rules += f" border: 1px solid {border};"
-                css_rules += " }"
-                accent = slide.get("accent_color") or slide.get("color")
-                if accent:
-                    css_rules += f" .mac-hero-slide-{idx} .mac-hero-tag {{ color: {accent}; }}"
-                prov = Gtk.CssProvider()
-                prov.load_from_data(css_rules.encode("utf-8"))
-                display = Gdk.Display.get_default()
-                if display:
-                    Gtk.StyleContext.add_provider_for_display(display, prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-
-            slide_box = self._build_slide(idx, slide)
-            self.stack.add_named(slide_box, f"slide_{idx}")
-
         self.set_child(self.stack)
+
+        # Bottom Indicator Pills Box
+        self.dots_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.dots_box.set_valign(Gtk.Align.END)
+        self.dots_box.set_halign(Gtk.Align.CENTER)
+        self.dots_box.set_margin_bottom(12)
+        self.dots: List[Gtk.Button] = []
+
+        self._rebuild_all_slides()
 
         # Floating Left Navigation Arrow (34x34 Frosted Circle with 16px margin)
         self.left_btn = Gtk.Button()
@@ -1344,20 +1428,6 @@ class MacHeroCarousel(Gtk.Overlay):
         self.right_btn.connect("clicked", lambda b: self._next_slide())
         self.add_overlay(self.right_btn)
 
-        # Bottom Indicator Pills Box
-        self.dots_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self.dots_box.set_valign(Gtk.Align.END)
-        self.dots_box.set_halign(Gtk.Align.CENTER)
-        self.dots_box.set_margin_bottom(12)
-
-        self.dots: List[Gtk.Button] = []
-        for i in range(len(self.slides)):
-            dot = Gtk.Button()
-            dot.add_css_class("mac-hero-dot-active" if i == 0 else "mac-hero-dot")
-            dot.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
-            dot.connect("clicked", lambda b, target_idx=i: self._jump_to_slide(target_idx))
-            self.dots.append(dot)
-            self.dots_box.append(dot)
         self.add_overlay(self.dots_box)
 
         # Pause on hover controller
@@ -1369,6 +1439,73 @@ class MacHeroCarousel(Gtk.Overlay):
         # Auto-advance slideshow: GLib.timeout_add(5000, self._auto_advance)
         self._timer_id = GLib.timeout_add(5000, self._auto_advance)
         self.connect("destroy", self._on_destroy)
+
+    def refresh_slides(self):
+        """Fetch fresh spotlight applications and rebuild carousel slides."""
+        featured = None
+        if hasattr(self.aura_window, "pm") and self.aura_window.pm:
+            try:
+                if hasattr(self.aura_window.pm, "get_dynamic_featured_apps"):
+                    featured = self.aura_window.pm.get_dynamic_featured_apps(count=5, refresh=True)
+            except Exception as e:
+                print(f"[Aura] Error loading dynamic featured apps: {e}", file=sys.stderr)
+
+        if featured and isinstance(featured, list) and len(featured) > 0:
+            self.slides = featured[:5]
+        else:
+            self.slides = list(DEFAULT_HERO_SLIDES)
+
+        self._rebuild_all_slides()
+
+    def _rebuild_all_slides(self):
+        """Clear and rebuild stack slides and pagination pills."""
+        while True:
+            child = self.stack.get_first_child()
+            if not child:
+                break
+            self.stack.remove(child)
+
+        while True:
+            child = self.dots_box.get_first_child()
+            if not child:
+                break
+            self.dots_box.remove(child)
+        self.dots.clear()
+
+        self.current_idx = 0
+
+        for idx, slide in enumerate(self.slides):
+            # Dynamic slide style injection if slide provides custom bg / border
+            bg = slide.get("bg")
+            border = slide.get("border")
+            if bg or border:
+                css_rules = f".mac-hero-slide-{idx} {{"
+                if bg:
+                    css_rules += f" background: {bg};"
+                if border:
+                    css_rules += f" border: 1px solid {border};"
+                css_rules += " }"
+                accent = slide.get("accent_color") or slide.get("color")
+                if accent:
+                    css_rules += f" .mac-hero-slide-{idx} .mac-hero-tag {{ color: {accent}; }}"
+                prov = Gtk.CssProvider()
+                prov.load_from_data(css_rules.encode("utf-8"))
+                display = Gdk.Display.get_default()
+                if display:
+                    Gtk.StyleContext.add_provider_for_display(display, prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+            slide_box = self._build_slide(idx, slide)
+            self.stack.add_named(slide_box, f"slide_{idx}")
+
+            dot = Gtk.Button()
+            dot.add_css_class("mac-hero-dot-active" if idx == 0 else "mac-hero-dot")
+            dot.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+            dot.connect("clicked", lambda b, target_idx=idx: self._jump_to_slide(target_idx))
+            self.dots.append(dot)
+            self.dots_box.append(dot)
+
+        if self.slides:
+            self.stack.set_visible_child_name("slide_0")
 
     def _open_detail(self, sid: str, ssrc: str):
         now = time.time()
@@ -1451,8 +1588,13 @@ class MacHeroCarousel(Gtk.Overlay):
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         btn_box.set_margin_top(8)
 
-        action_btn = Gtk.Button(label="OPEN" if is_installed else "GET")
-        action_btn.add_css_class("mac-btn-open" if is_installed else "mac-btn-get")
+        if hasattr(self.aura_window, "pm") and self.aura_window.pm and hasattr(self.aura_window.pm, "is_pkg_installing") and self.aura_window.pm.is_pkg_installing(slide["id"]):
+            action_btn = Gtk.Button(label="INSTALLING...")
+            action_btn.add_css_class("mac-btn-get")
+            action_btn.set_sensitive(False)
+        else:
+            action_btn = Gtk.Button(label="OPEN" if is_installed else "GET")
+            action_btn.add_css_class("mac-btn-open" if is_installed else "mac-btn-get")
         action_btn.set_size_request(88, 32)
         action_btn.set_valign(Gtk.Align.CENTER)
         action_btn.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
@@ -1465,11 +1607,11 @@ class MacHeroCarousel(Gtk.Overlay):
 
         content_box.append(left_col)
 
-        # Right Column: Dead-Centered Squircle Icon Container (generous 64px margin end)
+        # Right Column: Dead-Centered Squircle Icon Container (60px margin end)
         right_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         right_col.set_valign(Gtk.Align.CENTER)
         right_col.set_halign(Gtk.Align.END)
-        right_col.set_margin_end(64)
+        right_col.set_margin_end(60)
 
         icon_box = Gtk.Box()
         icon_box.add_css_class("mac-hero-squircle")
@@ -1479,7 +1621,7 @@ class MacHeroCarousel(Gtk.Overlay):
         icon_box.set_hexpand(False)
         icon_box.set_vexpand(False)
 
-        icon_img = create_scaled_image(icon_target, size=56)
+        icon_img = create_scaled_image(icon_target, size=76)
         icon_img.set_halign(Gtk.Align.CENTER)
         icon_img.set_valign(Gtk.Align.CENTER)
         icon_img.set_hexpand(True)
@@ -1576,6 +1718,18 @@ class AuraWindow(Adw.ApplicationWindow):
         self._cached_installed_apps_flow: Optional[Gtk.FlowBox] = None
         self._registered_grids: List[Gtk.FlowBox] = []
         self._active_cols: int = 2
+
+        # Smooth Progress and Animation State
+        self._progress_anim_id: Optional[int] = None
+        self._current_progress: float = 0.0
+        self._target_progress: float = 0.0
+        self._progress_action: str = ""
+        self._progress_pkg_name: str = ""
+        self._progress_display_name: str = ""
+        self._progress_source: str = "pacman"
+        self._progress_status_text: str = ""
+        self._progress_target_view: str = "detail"
+        self._progress_auto_hide_id: Optional[int] = None
 
         # Root Toast Overlay
         self.toast_overlay = Adw.ToastOverlay()
@@ -1958,6 +2112,7 @@ class AuraWindow(Adw.ApplicationWindow):
                     app_meta.get("source", "pacman"),
                     title_override=app_meta.get("title", "")
                 )
+                card.add_css_class("mac-category-card")
                 self.cat_flow_box.append(card)
 
         self.main_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
@@ -2038,6 +2193,27 @@ class AuraWindow(Adw.ApplicationWindow):
         spacer.set_hexpand(True)
         header.append(spacer)
 
+        # Global Floating Progress Indicator in Header Bar
+        self.header_progress_pill = Gtk.Button()
+        self.header_progress_pill.add_css_class("mac-header-progress-pill")
+        self.header_progress_pill.set_valign(Gtk.Align.CENTER)
+        self.header_progress_pill.set_visible(False)
+        self.header_progress_pill.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+
+        pill_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        pill_box.set_valign(Gtk.Align.CENTER)
+
+        self.header_progress_spinner = Gtk.Spinner()
+        self.header_progress_spinner.set_size_request(13, 13)
+        pill_box.append(self.header_progress_spinner)
+
+        self.header_progress_label = Gtk.Label(label="")
+        pill_box.append(self.header_progress_label)
+
+        self.header_progress_pill.set_child(pill_box)
+        self.header_progress_pill.connect("clicked", lambda b: self._on_header_progress_clicked())
+        header.append(self.header_progress_pill)
+
         # Window Controls & Utilities Group (Hyprland / Tiling Friendly)
         btn_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         btn_group.set_valign(Gtk.Align.CENTER)
@@ -2092,6 +2268,29 @@ class AuraWindow(Adw.ApplicationWindow):
                 self.auth_btn.set_tooltip_text("Configure Lifetime Passwordless Mode")
                 self.auth_btn.remove_css_class("mac-auth-verified")
                 self.auth_btn.add_css_class("mac-auth-needed")
+
+    def _on_header_progress_clicked(self):
+        active_tx = self.pm.get_active_transaction() if hasattr(self.pm, "get_active_transaction") else None
+        action = ""
+        pkg_name = ""
+        source = "pacman"
+        if active_tx and isinstance(active_tx, dict):
+            action = active_tx.get("action", "")
+            pkg_name = active_tx.get("pkg_name", "")
+            source = active_tx.get("source", "pacman")
+        elif self._progress_pkg_name:
+            action = self._progress_action
+            pkg_name = self._progress_pkg_name
+            source = self._progress_source
+
+        if action in ["update", "upgrade"] or pkg_name in ["system", "--all", "all", ""]:
+            if "updates" in self.sidebar_buttons:
+                if not self.sidebar_buttons["updates"].get_active():
+                    self.sidebar_buttons["updates"].set_active(True)
+                else:
+                    self._on_sidebar_channel_click("updates")
+        elif pkg_name:
+            self._open_package_detail(pkg_name, source)
 
     def _show_password_config_dialog(self):
         is_cfg = self.pm.is_passwordless_configured()
@@ -2248,6 +2447,7 @@ class AuraWindow(Adw.ApplicationWindow):
                     app_meta.get("source", "pacman"),
                     title_override=app_meta.get("title", "")
                 )
+                card.add_css_class("mac-category-card")
                 flow.append(card)
             box.append(flow)
 
@@ -2342,12 +2542,24 @@ class AuraWindow(Adw.ApplicationWindow):
         self.updates_progress_box.add_css_class("progress-card")
         self.updates_progress_box.set_visible(False)
 
+        up_prog_hdr = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        up_prog_hdr.add_css_class("mac-progress-header")
+
         self.updates_progress_lbl = Gtk.Label(label="Updating packages...")
         self.updates_progress_lbl.set_halign(Gtk.Align.START)
-        self.updates_progress_lbl.add_css_class("dim-label")
-        self.updates_progress_box.append(self.updates_progress_lbl)
+        self.updates_progress_lbl.set_hexpand(True)
+        self.updates_progress_lbl.add_css_class("mac-progress-title")
+        up_prog_hdr.append(self.updates_progress_lbl)
+
+        self.updates_percent_label = Gtk.Label(label="0%")
+        self.updates_percent_label.add_css_class("mac-progress-percent")
+        self.updates_percent_label.set_halign(Gtk.Align.END)
+        up_prog_hdr.append(self.updates_percent_label)
+
+        self.updates_progress_box.append(up_prog_hdr)
 
         self.updates_progress_bar = Gtk.ProgressBar()
+        self.updates_progress_bar.add_css_class("mac-capsule-progress")
         self.updates_progress_bar.set_fraction(0.0)
         self.updates_progress_box.append(self.updates_progress_bar)
 
@@ -2391,17 +2603,38 @@ class AuraWindow(Adw.ApplicationWindow):
     def _load_updates_view(self):
         self._sync_all_grid_columns()
         self.updates_flow_box.remove_all()
-        if not self.pm.updates_checked:
-            self.updates_count_label.set_text("Checking for updates...")
+
+        active_tx = self.pm.get_active_transaction() if hasattr(self.pm, "get_active_transaction") else None
+        is_updating = False
+        if active_tx and isinstance(active_tx, dict):
+            if active_tx.get("action") in ["update", "upgrade"]:
+                is_updating = True
+
+        if is_updating:
+            self.updates_progress_box.set_visible(True)
             self.btn_update_all.set_sensitive(False)
-            def _bg():
-                upgrades = self.pm.check_updates()
-                GLib.idle_add(lambda: self._populate_updates(upgrades))
-            threading.Thread(target=_bg, daemon=True).start()
-        else:
+            prog = float(active_tx.get("progress", 0.0))
+            msg = str(active_tx.get("status", "Updating packages..."))
+            self.updates_progress_bar.set_fraction(prog)
+            self.updates_progress_lbl.set_text(msg)
+            self.updates_percent_label.set_text(f"{int(prog * 100)}%")
             self._populate_updates(self.pm.upgradable_list)
+            self.btn_update_all.set_sensitive(False)
+        else:
+            if not self.pm.updates_checked:
+                self.updates_count_label.set_text("Checking for updates...")
+                self.updates_count_label.add_css_class("mac-loading-shimmer")
+                self.btn_update_all.set_sensitive(False)
+                def _bg():
+                    upgrades = self.pm.check_updates()
+                    GLib.idle_add(lambda: self._populate_updates(upgrades))
+                threading.Thread(target=_bg, daemon=True).start()
+            else:
+                self.updates_count_label.remove_css_class("mac-loading-shimmer")
+                self._populate_updates(self.pm.upgradable_list)
 
     def _populate_updates(self, upgrades: List[Dict[str, str]]):
+        self.updates_count_label.remove_css_class("mac-loading-shimmer")
         self.updates_flow_box.remove_all()
         count = len(upgrades)
         if count == 0:
@@ -2694,6 +2927,7 @@ class AuraWindow(Adw.ApplicationWindow):
     def _create_container_app_card(self, app: Dict[str, Any]) -> Gtk.Box:
         card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
         card.add_css_class("mac-app-row")
+        card.add_css_class("mac-container-card")
         card.set_hexpand(True)
         card.set_valign(Gtk.Align.FILL)
 
@@ -2998,12 +3232,24 @@ class AuraWindow(Adw.ApplicationWindow):
         self.progress_container.add_css_class("progress-card")
         self.progress_container.set_visible(False)
 
+        prog_hdr = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        prog_hdr.add_css_class("mac-progress-header")
+
         self.progress_status_label = Gtk.Label(label="Installing...")
         self.progress_status_label.set_halign(Gtk.Align.START)
-        self.progress_status_label.add_css_class("dim-label")
-        self.progress_container.append(self.progress_status_label)
+        self.progress_status_label.set_hexpand(True)
+        self.progress_status_label.add_css_class("mac-progress-title")
+        prog_hdr.append(self.progress_status_label)
+
+        self.progress_percent_label = Gtk.Label(label="0%")
+        self.progress_percent_label.add_css_class("mac-progress-percent")
+        self.progress_percent_label.set_halign(Gtk.Align.END)
+        prog_hdr.append(self.progress_percent_label)
+
+        self.progress_container.append(prog_hdr)
 
         self.progress_bar = Gtk.ProgressBar()
+        self.progress_bar.add_css_class("mac-capsule-progress")
         self.progress_bar.set_fraction(0.0)
         self.progress_container.append(self.progress_bar)
 
@@ -3251,11 +3497,15 @@ class AuraWindow(Adw.ApplicationWindow):
 
         card.append(vbox)
 
-        # 3. Action Pill Button (GET / OPEN / INSTALLED / UPDATE)
+        # 3. Action Pill Button (GET / OPEN / INSTALLED / UPDATE / INSTALLING)
         is_inst = is_installed_view or self.pm.is_installed(name)
         has_desktop = is_installed_view or (is_inst and bool(self.pm.detect_desktop_entry(name)))
 
-        if update_info:
+        if hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name):
+            action_btn = Gtk.Button(label="INSTALLING...")
+            action_btn.add_css_class("mac-btn-get")
+            action_btn.set_sensitive(False)
+        elif update_info:
             action_btn = Gtk.Button(label="UPDATE")
             action_btn.add_css_class("mac-btn-update")
             src = update_info.get("source", source)
@@ -3355,10 +3605,19 @@ class AuraWindow(Adw.ApplicationWindow):
         self.btn_detail_launch.set_visible(False)
         self.btn_detail_install.set_visible(False)
         self.btn_detail_remove.set_visible(False)
-        self.progress_container.set_visible(False)
+
+        if hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name):
+            self.progress_container.set_visible(True)
+            prog, msg = self.pm.get_active_progress(name) if hasattr(self.pm, "get_active_progress") else (0.0, "Installing...")
+            self.progress_bar.set_fraction(prog)
+            self.progress_status_label.set_text(msg or "Installing...")
+            self.progress_percent_label.set_text(f"{int(prog * 100)}%")
+        else:
+            self.progress_container.set_visible(False)
 
         # Clear description & website button & dependency pills
         self.detail_desc_label.set_text("Retrieving package details and system metadata...")
+        self.detail_desc_label.add_css_class("mac-loading-shimmer")
         if hasattr(self, "btn_detail_website"):
             self.btn_detail_website.set_visible(False)
         if hasattr(self, "detail_deps_box"):
@@ -3377,6 +3636,7 @@ class AuraWindow(Adw.ApplicationWindow):
 
     def _render_detail_page(self, d: Dict[str, Any]):
         self._current_detail = d
+        self.detail_desc_label.remove_css_class("mac-loading-shimmer")
         name = d.get("name", "")
         source = d.get("source", "pacman")
         is_installed = d.get("is_installed", False)
@@ -3408,7 +3668,24 @@ class AuraWindow(Adw.ApplicationWindow):
 
         # Action Buttons
         desktop_entry = d.get("desktop_entry")
-        if is_installed:
+        is_installing = hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name)
+
+        if is_installing:
+            self.progress_container.set_visible(True)
+            prog, msg = self.pm.get_active_progress(name) if hasattr(self.pm, "get_active_progress") else (0.0, "Installing...")
+            self.progress_bar.set_fraction(prog)
+            self.progress_status_label.set_text(msg or "Installing...")
+            self.progress_percent_label.set_text(f"{int(prog * 100)}%")
+
+            self.btn_detail_launch.set_visible(False)
+            self.btn_detail_install.set_label("INSTALLING...")
+            self.btn_detail_install.set_sensitive(False)
+            self.btn_detail_install.set_css_classes(["mac-btn-primary-large"])
+            self.btn_detail_install.set_size_request(108, 36)
+            self.btn_detail_install.set_visible(True)
+            self.btn_detail_remove.set_visible(False)
+        elif is_installed:
+            self.progress_container.set_visible(False)
             if desktop_entry:
                 self.btn_detail_launch.set_label("OPEN")
                 self.btn_detail_launch.set_css_classes(["mac-btn-detail-open"])
@@ -3425,10 +3702,12 @@ class AuraWindow(Adw.ApplicationWindow):
             self.btn_detail_remove.set_size_request(108, 36)
             self.btn_detail_remove.set_visible(True)
         else:
+            self.progress_container.set_visible(False)
             self.btn_detail_launch.set_visible(False)
             self.btn_detail_install.set_label("GET")
             self.btn_detail_install.set_css_classes(["mac-btn-primary-large"])
             self.btn_detail_install.set_size_request(108, 36)
+            self.btn_detail_install.set_sensitive(True)
             self.btn_detail_install.set_visible(True)
             self.btn_detail_remove.set_visible(False)
 
@@ -3538,6 +3817,7 @@ class AuraWindow(Adw.ApplicationWindow):
         self.active_request_id += 1
         req_id = self.active_request_id
         self.browse_status_label.set_text(f"Searching for '{query}'...")
+        self.browse_status_label.add_css_class("mac-loading-shimmer")
 
         def _bg():
             results = self.pm.search(query, source=self.current_filter, limit=60)
@@ -3548,6 +3828,7 @@ class AuraWindow(Adw.ApplicationWindow):
         return False
 
     def _display_search_results(self, query: str, results: List[Dict[str, Any]]):
+        self.browse_status_label.remove_css_class("mac-loading-shimmer")
         self.browse_flow_box.remove_all()
         count = len(results)
         self.browse_status_label.set_text(f"Found {count} result{'s' if count != 1 else ''} for '{query}' (Official priority)")
@@ -3570,48 +3851,241 @@ class AuraWindow(Adw.ApplicationWindow):
             self.browse_flow_box.append(card)
 
     # =========================================================================
-    # Install / Update / Remove Background Actions with In-App Progress
+    # Install / Update / Remove Background Actions with Silky Smooth Progress Lerp
     # =========================================================================
+    def _start_smooth_progress(
+        self,
+        action: str,
+        pkg_name: str,
+        display_name: str = "",
+        source: str = "pacman",
+        target_view: str = "detail"
+    ):
+        """Initialize smooth state-tracked progress bar and header capsule."""
+        if getattr(self, "_progress_auto_hide_id", None):
+            GLib.source_remove(self._progress_auto_hide_id)
+            self._progress_auto_hide_id = None
+
+        disp = display_name or get_app_display_name(pkg_name)
+        self._progress_action = action
+        self._progress_pkg_name = pkg_name
+        self._progress_display_name = disp
+        self._progress_source = source
+        self._progress_target_view = target_view
+        self._current_progress = 0.05
+        self._target_progress = 0.08
+
+        # Action-specific status label
+        if action == "install":
+            st_text = f"Preparing to install {disp}..."
+            pill_title = f"Installing {disp}"
+        elif action == "remove":
+            st_text = f"Preparing to remove {disp}..."
+            pill_title = f"Removing {disp}"
+        elif action in ["update", "upgrade"]:
+            if pkg_name in ["system", "--all", "all", ""] or not pkg_name:
+                st_text = "Upgrading all system packages..."
+                pill_title = "Updating System"
+            else:
+                st_text = f"Updating {disp}..."
+                pill_title = f"Updating {disp}"
+        else:
+            st_text = f"Working on {disp}..."
+            pill_title = f"Processing {disp}"
+
+        self._progress_status_text = st_text
+
+        # 1. Floating Header Pill
+        self.header_progress_pill.set_visible(True)
+        self.header_progress_spinner.start()
+        self.header_progress_label.set_text(f"⟳ {pill_title} • 5%")
+
+        # 2. View specific containers
+        if target_view == "detail":
+            self.progress_container.set_visible(True)
+            self.progress_bar.set_fraction(0.05)
+            self.progress_status_label.set_text(st_text)
+            self.progress_percent_label.set_text("5%")
+            self.btn_detail_install.set_sensitive(False)
+            self.btn_detail_install.set_label("INSTALLING..." if action == "install" else "WORKING...")
+            self.btn_detail_launch.set_visible(False)
+        elif target_view == "updates":
+            self.updates_progress_box.set_visible(True)
+            self.updates_progress_bar.set_fraction(0.05)
+            self.updates_progress_lbl.set_text(st_text)
+            self.updates_percent_label.set_text("5%")
+            self.btn_update_all.set_sensitive(False)
+
+        # 3. Start tick animation
+        if getattr(self, "_progress_anim_id", None):
+            GLib.source_remove(self._progress_anim_id)
+            self._progress_anim_id = None
+        self._progress_anim_id = GLib.timeout_add(16, self._on_progress_lerp_tick)
+
+    def _on_progress_update(self, frac: float, msg: str):
+        """Called asynchronously when pacman/paru outputs progress."""
+        def _apply():
+            # Ensure target never steps backwards
+            self._target_progress = max(self._target_progress, max(0.0, min(1.0, frac)))
+            if msg:
+                self._progress_status_text = msg
+                if self._progress_target_view == "detail" and self.progress_container.get_visible():
+                    self.progress_status_label.set_text(msg)
+                elif self._progress_target_view == "updates" and self.updates_progress_box.get_visible():
+                    self.updates_progress_lbl.set_text(msg)
+            # Ensure tick ticker is running
+            if not getattr(self, "_progress_anim_id", None) and self._current_progress < 1.0:
+                self._progress_anim_id = GLib.timeout_add(16, self._on_progress_lerp_tick)
+        GLib.idle_add(_apply)
+
+    def _on_progress_lerp_tick(self) -> bool:
+        """Smoothly interpolate current_fraction toward target_fraction at 60fps."""
+        diff = self._target_progress - self._current_progress
+        if abs(diff) < 0.0005:
+            self._current_progress = self._target_progress
+        else:
+            # Fluid physics glide (12% of delta per frame, minimum step 0.0025)
+            step = max(abs(diff) * 0.12, 0.0025)
+            if diff > 0:
+                self._current_progress = min(self._target_progress, self._current_progress + step)
+            else:
+                self._current_progress = max(self._target_progress, self._current_progress - step)
+
+        cur = self._current_progress
+        pct = int(cur * 100)
+        pct_str = f"{pct}%"
+
+        # Update Detail page progress if visible and corresponding to active package
+        if hasattr(self, "progress_bar") and hasattr(self, "progress_container") and self.progress_container.get_visible():
+            if self._current_detail and self._current_detail.get("name") == self._progress_pkg_name:
+                self.progress_bar.set_fraction(cur)
+                if hasattr(self, "progress_percent_label"):
+                    self.progress_percent_label.set_text(pct_str)
+
+        # Update Updates page progress if visible
+        if hasattr(self, "updates_progress_bar") and hasattr(self, "updates_progress_box") and self.updates_progress_box.get_visible():
+            self.updates_progress_bar.set_fraction(cur)
+            if hasattr(self, "updates_percent_label"):
+                self.updates_percent_label.set_text(pct_str)
+
+        # Update Floating Header Pill
+        if hasattr(self, "header_progress_pill") and self.header_progress_pill.get_visible():
+            disp = self._progress_display_name or self._progress_pkg_name
+            if self._progress_action == "install":
+                pill_title = f"Installing {disp}"
+            elif self._progress_action == "remove":
+                pill_title = f"Removing {disp}"
+            elif self._progress_action in ["update", "upgrade"]:
+                if self._progress_pkg_name in ["system", "--all", "all", ""] or not self._progress_pkg_name:
+                    pill_title = "Updating System"
+                else:
+                    pill_title = f"Updating {disp}"
+            else:
+                pill_title = f"Processing {disp}"
+            if hasattr(self, "header_progress_label"):
+                self.header_progress_label.set_text(f"⟳ {pill_title} • {pct_str}")
+
+        # If operation ended and animation reached target, finish tick
+        if self._current_progress >= self._target_progress:
+            is_active = hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(self._progress_pkg_name)
+            active_tx = self.pm.get_active_transaction() if hasattr(self.pm, "get_active_transaction") else None
+            if not is_active and not active_tx:
+                self._progress_anim_id = None
+                return False
+
+        return True  # Keep ticking
+
+    def _finish_smooth_progress(self, ok: bool, action: str, pkg_name: str, err: str = ""):
+        """Handle completion or failure of background action with elegant transitions."""
+        if getattr(self, "_progress_anim_id", None):
+            GLib.source_remove(self._progress_anim_id)
+            self._progress_anim_id = None
+
+        self.header_progress_spinner.stop()
+        disp = self._progress_display_name or (get_app_display_name(pkg_name) if pkg_name else "Package")
+
+        if ok:
+            self._current_progress = 1.0
+            self._target_progress = 1.0
+            done_title = "System Updated" if pkg_name in ["system", "--all", "all", ""] else f"{disp} Done"
+            self.header_progress_label.set_text(f"✓ {done_title}")
+
+            if hasattr(self, "progress_bar") and self.progress_container.get_visible():
+                if self._current_detail and self._current_detail.get("name") == pkg_name:
+                    self.progress_bar.set_fraction(1.0)
+                    self.progress_percent_label.set_text("100%")
+                    if action == "install":
+                        self.progress_status_label.set_text("✓ Installation complete!")
+                    elif action == "remove":
+                        self.progress_status_label.set_text("✓ Removed successfully!")
+                    else:
+                        self.progress_status_label.set_text("✓ Operation complete!")
+
+            if hasattr(self, "updates_progress_bar") and self.updates_progress_box.get_visible():
+                self.updates_progress_bar.set_fraction(1.0)
+                self.updates_percent_label.set_text("100%")
+                self.updates_progress_lbl.set_text("✓ System update complete!" if pkg_name == "system" else f"✓ Updated {disp} successfully!")
+
+            def _auto_dismiss():
+                self.header_progress_pill.set_visible(False)
+                if hasattr(self, "progress_container") and self._current_detail and self._current_detail.get("name") == pkg_name:
+                    self.progress_container.set_visible(False)
+                if hasattr(self, "updates_progress_box"):
+                    self.updates_progress_box.set_visible(False)
+                self._progress_auto_hide_id = None
+                return False
+
+            self._progress_auto_hide_id = GLib.timeout_add(2500, _auto_dismiss)
+        else:
+            self._current_progress = 0.0
+            self._target_progress = 0.0
+            self.header_progress_label.set_text(f"✕ Failed: {disp[:18]}")
+
+            if hasattr(self, "progress_bar") and self.progress_container.get_visible():
+                self.progress_bar.set_fraction(0.0)
+                self.progress_percent_label.set_text("0%")
+                self.progress_status_label.set_text(f"Error: {err[:55]}")
+
+            if hasattr(self, "updates_progress_bar") and self.updates_progress_box.get_visible():
+                self.updates_progress_bar.set_fraction(0.0)
+                self.updates_percent_label.set_text("0%")
+                self.updates_progress_lbl.set_text(f"Error: {err[:55]}")
+
+            def _auto_dismiss_err():
+                self.header_progress_pill.set_visible(False)
+                if hasattr(self, "progress_container"):
+                    self.progress_container.set_visible(False)
+                if hasattr(self, "updates_progress_box"):
+                    self.updates_progress_box.set_visible(False)
+                self._progress_auto_hide_id = None
+                return False
+
+            self._progress_auto_hide_id = GLib.timeout_add(4500, _auto_dismiss_err)
+
     def _on_install_click(self):
         if not self._current_detail:
             return
         name = self._current_detail["name"]
         source = self._current_detail.get("source", "pacman")
+        disp = self._current_detail.get("display_name") or get_app_display_name(name)
 
-        self.btn_detail_install.set_sensitive(False)
-        self.progress_container.set_visible(True)
-        self.progress_bar.set_fraction(0.0)
-        self.progress_bar.pulse()
-        self.progress_status_label.set_text(f"Preparing to install {name}...")
-        self._detail_pulse_id = GLib.timeout_add(120, self._pulse_detail_bar)
+        self._start_smooth_progress("install", name, display_name=disp, source=source, target_view="detail")
 
         def _on_prog(frac: float, status_msg: str):
-            def _apply():
-                if getattr(self, '_detail_pulse_id', None):
-                    GLib.source_remove(self._detail_pulse_id)
-                    self._detail_pulse_id = None
-                self.progress_bar.set_fraction(frac)
-                self.progress_status_label.set_text(status_msg)
-            GLib.idle_add(_apply)
+            self._on_progress_update(frac, status_msg)
 
         def _on_done(ok: bool, action: str, pkg_name: str, err: str):
             def _ui():
-                if getattr(self, '_detail_pulse_id', None):
-                    GLib.source_remove(self._detail_pulse_id)
-                    self._detail_pulse_id = None
-                self.btn_detail_install.set_sensitive(True)
+                self._finish_smooth_progress(ok, action, pkg_name, err)
                 if ok:
-                    self.progress_bar.set_fraction(1.0)
-                    self.progress_status_label.set_text("✓ Installation complete!")
-                    self.show_toast(f"Successfully installed {pkg_name}!")
+                    self.show_toast(f"Successfully installed {disp}!")
                     self.pm.refresh_installed()
                     self._cached_installed_apps_flow = None
                     GLib.timeout_add(1500, lambda: self._open_package_detail(pkg_name, source) or False)
                 else:
-                    self.progress_bar.set_fraction(0.0)
+                    self.btn_detail_install.set_sensitive(True)
+                    self.btn_detail_install.set_label("GET")
                     self.show_toast(f"Installation failed: {err[:50]}")
-                    self.progress_status_label.set_text(f"Error: {err[:60]}")
-                    GLib.timeout_add(4000, lambda: self.progress_container.set_visible(False) or False)
             GLib.idle_add(_ui)
 
         self.pm.execute_background_action("install", name, source, _on_prog, _on_done)
@@ -3621,71 +4095,41 @@ class AuraWindow(Adw.ApplicationWindow):
             return
         name = self._current_detail["name"]
         source = self._current_detail.get("source", "pacman")
+        disp = self._current_detail.get("display_name") or get_app_display_name(name)
 
         self.btn_detail_remove.set_sensitive(False)
-        self.progress_container.set_visible(True)
-        self.progress_bar.set_fraction(0.0)
-        self.progress_bar.pulse()
-        self.progress_status_label.set_text(f"Removing {name}...")
-        self._detail_pulse_id = GLib.timeout_add(120, self._pulse_detail_bar)
+        self._start_smooth_progress("remove", name, display_name=disp, source=source, target_view="detail")
 
         def _on_prog(frac: float, status_msg: str):
-            def _apply():
-                if getattr(self, '_detail_pulse_id', None):
-                    GLib.source_remove(self._detail_pulse_id)
-                    self._detail_pulse_id = None
-                self.progress_bar.set_fraction(frac)
-                self.progress_status_label.set_text(status_msg)
-            GLib.idle_add(_apply)
+            self._on_progress_update(frac, status_msg)
 
         def _on_done(ok: bool, action: str, pkg_name: str, err: str):
             def _ui():
-                if getattr(self, '_detail_pulse_id', None):
-                    GLib.source_remove(self._detail_pulse_id)
-                    self._detail_pulse_id = None
                 self.btn_detail_remove.set_sensitive(True)
+                self._finish_smooth_progress(ok, action, pkg_name, err)
                 if ok:
-                    self.progress_bar.set_fraction(1.0)
-                    self.progress_status_label.set_text("✓ Removed successfully!")
-                    self.show_toast(f"Successfully removed {pkg_name}!")
+                    self.show_toast(f"Successfully removed {disp}!")
                     self.pm.refresh_installed()
                     self._cached_installed_apps_flow = None
                     GLib.timeout_add(1500, lambda: self._open_package_detail(pkg_name, source) or False)
                 else:
-                    self.progress_bar.set_fraction(0.0)
                     self.show_toast(f"Removal failed: {err[:50]}")
-                    self.progress_status_label.set_text(f"Error: {err[:60]}")
-                    GLib.timeout_add(4000, lambda: self.progress_container.set_visible(False) or False)
             GLib.idle_add(_ui)
 
         self.pm.execute_background_action("remove", name, source, _on_prog, _on_done)
 
     def _update_single_package(self, pkg_name: str, source: str = "pacman"):
-        self.updates_progress_box.set_visible(True)
-        self.updates_progress_bar.set_fraction(0.0)
-        self.updates_progress_bar.pulse()
-        self.updates_progress_lbl.set_text(f"Updating {pkg_name}...")
-        # Pulse animation timer
-        self._update_pulse_id = GLib.timeout_add(120, self._pulse_updates_bar)
+        disp = get_app_display_name(pkg_name)
+        self._start_smooth_progress("update", pkg_name, display_name=disp, source=source, target_view="updates")
 
         def _on_prog(frac: float, msg: str):
-            def _apply():
-                if self._update_pulse_id:
-                    GLib.source_remove(self._update_pulse_id)
-                    self._update_pulse_id = None
-                self.updates_progress_bar.set_fraction(frac)
-                self.updates_progress_lbl.set_text(msg)
-            GLib.idle_add(_apply)
+            self._on_progress_update(frac, msg)
 
         def _on_done(ok: bool, action: str, name: str, err: str):
             def _ui():
-                if self._update_pulse_id:
-                    GLib.source_remove(self._update_pulse_id)
-                    self._update_pulse_id = None
+                self._finish_smooth_progress(ok, action, name, err)
                 if ok:
-                    self.updates_progress_bar.set_fraction(1.0)
-                    self.updates_progress_lbl.set_text(f"✓ Updated {name} successfully!")
-                    self.show_toast(f"Updated {name} successfully!")
+                    self.show_toast(f"Updated {disp} successfully!")
                     with self.pm._lock:
                         self.pm.upgradable_list = [u for u in self.pm.upgradable_list if u.get("name") != name]
                     rem = len(self.pm.upgradable_list)
@@ -3696,43 +4140,23 @@ class AuraWindow(Adw.ApplicationWindow):
                     self.sidebar_installed_badge.set_text(str(num_inst))
                     self._cached_installed_apps_flow = None
                     self._populate_updates(self.pm.upgradable_list)
-                    # Auto-hide progress after 2s
-                    GLib.timeout_add(2000, lambda: self.updates_progress_box.set_visible(False) or False)
                 else:
-                    self.updates_progress_bar.set_fraction(0.0)
-                    self.show_toast(f"Update failed for {name}: {err[:50]}")
-                    self.updates_progress_lbl.set_text(f"Error: {err[:60]}")
-                    GLib.timeout_add(4000, lambda: self.updates_progress_box.set_visible(False) or False)
+                    self.show_toast(f"Update failed for {disp}: {err[:50]}")
             GLib.idle_add(_ui)
 
         self.pm.execute_background_action("update", pkg_name, source, _on_prog, _on_done)
 
     def _update_all_packages(self):
-        self.btn_update_all.set_sensitive(False)
-        self.updates_progress_box.set_visible(True)
-        self.updates_progress_bar.set_fraction(0.0)
-        self.updates_progress_bar.pulse()
-        self.updates_progress_lbl.set_text("Upgrading all system packages...")
-        self._update_pulse_id = GLib.timeout_add(120, self._pulse_updates_bar)
+        self._start_smooth_progress("update", "system", display_name="System Packages", source="pacman", target_view="updates")
 
         def _on_prog(frac: float, msg: str):
-            def _apply():
-                if self._update_pulse_id:
-                    GLib.source_remove(self._update_pulse_id)
-                    self._update_pulse_id = None
-                self.updates_progress_bar.set_fraction(frac)
-                self.updates_progress_lbl.set_text(msg)
-            GLib.idle_add(_apply)
+            self._on_progress_update(frac, msg)
 
         def _on_done(ok: bool, action: str, name: str, err: str):
             def _ui():
-                if self._update_pulse_id:
-                    GLib.source_remove(self._update_pulse_id)
-                    self._update_pulse_id = None
                 self.btn_update_all.set_sensitive(True)
+                self._finish_smooth_progress(ok, action, name, err)
                 if ok:
-                    self.updates_progress_bar.set_fraction(1.0)
-                    self.updates_progress_lbl.set_text("✓ System update complete!")
                     self.show_toast("All packages updated successfully!")
                     with self.pm._lock:
                         self.pm.upgradable_list = []
@@ -3743,28 +4167,16 @@ class AuraWindow(Adw.ApplicationWindow):
                     self.sidebar_installed_badge.set_text(str(num_inst))
                     self._cached_installed_apps_flow = None
                     self._populate_updates([])
-                    GLib.timeout_add(2000, lambda: self.updates_progress_box.set_visible(False) or False)
                 else:
-                    self.updates_progress_bar.set_fraction(0.0)
                     self.show_toast(f"System update error: {err[:50]}")
-                    self.updates_progress_lbl.set_text(f"Error: {err[:60]}")
-                    GLib.timeout_add(4000, lambda: self.updates_progress_box.set_visible(False) or False)
             GLib.idle_add(_ui)
 
         self.pm.execute_background_action("update", "system", "pacman", _on_prog, _on_done)
 
     def _pulse_updates_bar(self) -> bool:
-        """Pulse the updates progress bar for indeterminate progress."""
-        if hasattr(self, 'updates_progress_bar') and self.updates_progress_box.get_visible():
-            self.updates_progress_bar.pulse()
-            return True  # Keep pulsing
-        return False  # Stop
+        return False
 
     def _pulse_detail_bar(self) -> bool:
-        """Pulse the detail page progress bar for indeterminate progress."""
-        if hasattr(self, 'progress_bar') and self.progress_container.get_visible():
-            self.progress_bar.pulse()
-            return True
         return False
 
     # =========================================================================

@@ -17,6 +17,7 @@ import sys
 import glob
 import json
 import time
+import random
 import pickle
 import shutil
 import tarfile
@@ -47,6 +48,12 @@ CURATED_CATEGORIES = [
             {"name": "steam", "title": "Steam", "desc": "Gaming platform and game launcher", "source": "pacman"},
             {"name": "spotify", "title": "Spotify", "desc": "Music streaming service desktop app", "source": "aur"},
             {"name": "proton-vpn-gtk-app", "title": "Proton VPN", "desc": "Secure VPN client with WireGuard", "source": "pacman"},
+            {"name": "telegram-desktop", "title": "Telegram Desktop", "desc": "Fast and secure cloud-based messaging", "source": "pacman"},
+            {"name": "vlc", "title": "VLC Media Player", "desc": "Universal multimedia player and framework", "source": "pacman"},
+            {"name": "obs-studio", "title": "OBS Studio", "desc": "High-performance screen recorder and livestreamer", "source": "pacman"},
+            {"name": "gimp", "title": "GIMP", "desc": "Advanced image manipulation and artwork editor", "source": "pacman"},
+            {"name": "blender", "title": "Blender", "desc": "Full 3D creation suite and animation editor", "source": "pacman"},
+            {"name": "bitwarden", "title": "Bitwarden", "desc": "Secure open-source password vault", "source": "pacman"},
         ]
     },
     {
@@ -61,6 +68,12 @@ CURATED_CATEGORIES = [
             {"name": "lazygit", "title": "LazyGit", "desc": "Simple terminal UI for git commands", "source": "pacman"},
             {"name": "alacritty", "title": "Alacritty", "desc": "Fast GPU-accelerated terminal", "source": "pacman"},
             {"name": "kitty", "title": "Kitty", "desc": "Feature-rich modern terminal", "source": "pacman"},
+            {"name": "zed", "title": "Zed", "desc": "High-performance multiplayer code editor", "source": "aur"},
+            {"name": "postman-bin", "title": "Postman", "desc": "API development and testing platform", "source": "aur"},
+            {"name": "docker", "title": "Docker", "desc": "Enterprise container platform and tooling", "source": "pacman"},
+            {"name": "rust", "title": "Rust & Cargo", "desc": "Modern memory-safe systems programming language", "source": "pacman"},
+            {"name": "go", "title": "Go", "desc": "Fast, compiled concurrency-focused language", "source": "pacman"},
+            {"name": "dbeaver", "title": "DBeaver", "desc": "Universal SQL database client and GUI", "source": "pacman"},
         ]
     },
     {
@@ -69,12 +82,18 @@ CURATED_CATEGORIES = [
         "subtitle": "Office suites, knowledge bases, and focused writing",
         "icon": "x-office-document-symbolic",
         "apps": [
-            {"name": "libreoffice-fresh", "title": "LibreOffice", "desc": "Office suite for docs and sheets", "source": "pacman"},
-            {"name": "obsidian", "title": "Obsidian", "desc": "Knowledge base and markdown notes", "source": "aur"},
-            {"name": "thunar", "title": "Thunar", "desc": "Fast lightweight file manager", "source": "pacman"},
-            {"name": "micro", "title": "Micro Editor", "desc": "Intuitive modern terminal editor", "source": "pacman"},
-            {"name": "fastfetch", "title": "Fastfetch", "desc": "Fast system information display", "source": "pacman"},
-            {"name": "pavucontrol", "title": "Volume Control", "desc": "Advanced audio device control", "source": "pacman"},
+            {"name": "libreoffice-fresh", "title": "LibreOffice", "desc": "Comprehensive office suite for docs and sheets", "source": "pacman"},
+            {"name": "obsidian", "title": "Obsidian", "desc": "Knowledge base and connected markdown notes", "source": "aur"},
+            {"name": "thunar", "title": "Thunar", "desc": "Fast lightweight desktop file manager", "source": "pacman"},
+            {"name": "micro", "title": "Micro Editor", "desc": "Intuitive terminal text editor with mouse support", "source": "pacman"},
+            {"name": "fastfetch", "title": "Fastfetch", "desc": "High-speed system information tool", "source": "pacman"},
+            {"name": "pavucontrol", "title": "Volume Control", "desc": "Advanced PulseAudio and PipeWire audio control", "source": "pacman"},
+            {"name": "joplin-desktop", "title": "Joplin", "desc": "Secure markdown note taking with cloud sync", "source": "aur"},
+            {"name": "onlyoffice-bin", "title": "OnlyOffice", "desc": "Collaborative document and spreadsheet editor", "source": "aur"},
+            {"name": "anytype-bin", "title": "Anytype", "desc": "Privacy-first decentralized knowledge base", "source": "aur"},
+            {"name": "evince", "title": "Evince", "desc": "Document viewer for PDF, PostScript, and DjVu", "source": "pacman"},
+            {"name": "krita", "title": "Krita", "desc": "Professional free and open source painting program", "source": "pacman"},
+            {"name": "foliate", "title": "Foliate", "desc": "Modern ebook reader with distraction-free layout", "source": "pacman"},
         ]
     },
     {
@@ -83,12 +102,18 @@ CURATED_CATEGORIES = [
         "subtitle": "Secure browsers, encrypted messaging, and privacy tools",
         "icon": "security-high-symbolic",
         "apps": [
-            {"name": "brave-bin", "title": "Brave Browser", "desc": "Privacy browser with ad-blocking", "source": "aur"},
-            {"name": "zen-browser-bin", "title": "Zen Browser", "desc": "Modern tabbed privacy browser", "source": "aur"},
-            {"name": "chromium", "title": "Chromium", "desc": "Open-source web browser engine", "source": "pacman"},
-            {"name": "torbrowser-launcher", "title": "Tor Browser", "desc": "Anonymous secure web browsing", "source": "pacman"},
-            {"name": "telegram-desktop", "title": "Telegram", "desc": "Fast secure desktop messaging", "source": "pacman"},
-            {"name": "signal-desktop", "title": "Signal", "desc": "End-to-end encrypted messaging", "source": "pacman"},
+            {"name": "brave-bin", "title": "Brave Browser", "desc": "Privacy-focused browser with ad and tracker blocking", "source": "aur"},
+            {"name": "torbrowser-launcher", "title": "Tor Browser", "desc": "Secure anonymous browsing over the Tor network", "source": "pacman"},
+            {"name": "keepassxc", "title": "KeepassXC", "desc": "Offline cross-platform password database", "source": "pacman"},
+            {"name": "proton-vpn-gtk-app", "title": "Proton VPN", "desc": "Encrypted VPN client with Kill Switch", "source": "pacman"},
+            {"name": "wireguard-tools", "title": "WireGuard", "desc": "Extremely fast modern encrypted VPN tunnel", "source": "pacman"},
+            {"name": "mullvad-vpn-bin", "title": "Mullvad VPN", "desc": "Privacy-focused WireGuard VPN desktop app", "source": "aur"},
+            {"name": "chromium", "title": "Chromium", "desc": "Open-source web browser foundation", "source": "pacman"},
+            {"name": "signal-desktop", "title": "Signal Desktop", "desc": "Private end-to-end encrypted messaging", "source": "pacman"},
+            {"name": "wireshark-qt", "title": "Wireshark", "desc": "Network packet analyzer and traffic inspector", "source": "pacman"},
+            {"name": "bleachbit", "title": "BleachBit", "desc": "Clean caches, free disk space, and guard privacy", "source": "pacman"},
+            {"name": "tailscale", "title": "Tailscale", "desc": "Zero config mesh VPN for secure device networks", "source": "pacman"},
+            {"name": "thunderbird", "title": "Thunderbird", "desc": "Feature-packed email, calendar, and contacts client", "source": "pacman"},
         ]
     },
     {
@@ -97,12 +122,18 @@ CURATED_CATEGORIES = [
         "subtitle": "Audio, video streaming, recording, and digital artistry",
         "icon": "applications-graphics-symbolic",
         "apps": [
-            {"name": "obs-studio", "title": "OBS Studio", "desc": "Screen recording & live streaming", "source": "pacman"},
-            {"name": "vlc", "title": "VLC Media Player", "desc": "Multi-format media player", "source": "pacman"},
-            {"name": "gimp", "title": "GIMP", "desc": "Advanced image editing suite", "source": "pacman"},
-            {"name": "blender", "title": "Blender", "desc": "Professional 3D creation suite", "source": "pacman"},
-            {"name": "kdenlive", "title": "Kdenlive", "desc": "Non-linear video editor", "source": "pacman"},
-            {"name": "audacity", "title": "Audacity", "desc": "Multi-track audio editor & recorder", "source": "pacman"},
+            {"name": "vlc", "title": "VLC Media Player", "desc": "Plays every audio and video codec natively", "source": "pacman"},
+            {"name": "spotify", "title": "Spotify", "desc": "Stream millions of songs and podcasts", "source": "aur"},
+            {"name": "gimp", "title": "GIMP", "desc": "GNU Image Manipulation and photo editing tool", "source": "pacman"},
+            {"name": "inkscape", "title": "Inkscape", "desc": "Professional vector graphics illustrator", "source": "pacman"},
+            {"name": "audacity", "title": "Audacity", "desc": "Multi-track audio editor and recorder", "source": "pacman"},
+            {"name": "kdenlive", "title": "Kdenlive", "desc": "Powerful non-linear multi-track video editor", "source": "pacman"},
+            {"name": "blender", "title": "Blender", "desc": "World-class 3D modeling, rendering, and VFX suite", "source": "pacman"},
+            {"name": "obs-studio", "title": "OBS Studio", "desc": "Live video streaming and desktop screen capture", "source": "pacman"},
+            {"name": "handbrake", "title": "HandBrake", "desc": "Fast universal video transcoder and converter", "source": "pacman"},
+            {"name": "mpv", "title": "mpv", "desc": "Minimalist, powerful GPU-accelerated video player", "source": "pacman"},
+            {"name": "darktable", "title": "Darktable", "desc": "Virtual lighttable and raw photo developer", "source": "pacman"},
+            {"name": "ardour", "title": "Ardour", "desc": "Professional digital audio workstation (DAW)", "source": "pacman"},
         ]
     },
     {
@@ -111,12 +142,18 @@ CURATED_CATEGORIES = [
         "subtitle": "Hardware monitors, fast terminal utilities, and tools",
         "icon": "system-run-symbolic",
         "apps": [
-            {"name": "btop", "title": "btop Monitor", "desc": "Modern system resource monitor", "source": "pacman"},
-            {"name": "fastfetch", "title": "Fastfetch", "desc": "Fast system information display", "source": "pacman"},
-            {"name": "foot", "title": "Foot Terminal", "desc": "Lightweight Wayland terminal", "source": "pacman"},
-            {"name": "htop", "title": "htop", "desc": "Interactive process viewer", "source": "pacman"},
-            {"name": "nvtop", "title": "nvtop", "desc": "GPU task and performance monitor", "source": "pacman"},
-            {"name": "thunar", "title": "Thunar", "desc": "Fast lightweight file manager", "source": "pacman"},
+            {"name": "btop", "title": "Btop", "desc": "Aesthetic terminal system monitor and resource viewer", "source": "pacman"},
+            {"name": "htop", "title": "Htop", "desc": "Interactive process viewer and processor monitor", "source": "pacman"},
+            {"name": "gparted", "title": "GParted", "desc": "Partition editor for graphically managing disks", "source": "pacman"},
+            {"name": "timeshift", "title": "Timeshift", "desc": "System restore utility creating incremental snapshots", "source": "pacman"},
+            {"name": "baobab", "title": "Baobab", "desc": "Visual disk usage analyzer with tree rings", "source": "pacman"},
+            {"name": "fastfetch", "title": "Fastfetch", "desc": "Rapid system info display for modern Linux", "source": "pacman"},
+            {"name": "stacer-bin", "title": "Stacer", "desc": "Linux system optimizer and hardware monitoring dashboard", "source": "aur"},
+            {"name": "pavucontrol", "title": "Volume Control", "desc": "Audio routing and mixer for PipeWire", "source": "pacman"},
+            {"name": "fish", "title": "Fish Shell", "desc": "Smart user-friendly command line shell", "source": "pacman"},
+            {"name": "kitty", "title": "Kitty", "desc": "GPU-accelerated terminal emulator with tabs", "source": "pacman"},
+            {"name": "alacritty", "title": "Alacritty", "desc": "Blazing fast OpenGL terminal emulator", "source": "pacman"},
+            {"name": "hardinfo-git", "title": "Hardinfo", "desc": "System benchmark and hardware information tool", "source": "aur"},
         ]
     },
     {
@@ -125,21 +162,525 @@ CURATED_CATEGORIES = [
         "subtitle": "Game platforms, launchers, emulators, and gaming utilities",
         "icon": "applications-games-symbolic",
         "apps": [
-            {"name": "steam", "title": "Steam", "desc": "Gaming platform and game launcher", "source": "pacman"},
-            {"name": "lutris", "title": "Lutris Gaming", "desc": "Unified Linux gaming platform", "source": "pacman"},
-            {"name": "heroic", "title": "Heroic Games Launcher", "desc": "Epic Games and GOG launcher", "source": "aur"},
-            {"name": "retroarch", "title": "RetroArch", "desc": "Multi-system game engine & emulator", "source": "pacman"},
-            {"name": "bottles", "title": "Bottles", "desc": "Run Windows software & games easily", "source": "pacman"},
-            {"name": "mangohud", "title": "MangoHud", "desc": "Vulkan and OpenGL overlay monitor", "source": "pacman"},
+            {"name": "steam", "title": "Steam", "desc": "Ultimate gaming platform with Proton compatibility", "source": "pacman"},
+            {"name": "lutris", "title": "Lutris", "desc": "Open gaming platform for Windows, Linux, and emulators", "source": "pacman"},
+            {"name": "heroic-games-launcher-bin", "title": "Heroic Games Launcher", "desc": "Epic Games and GOG game launcher", "source": "aur"},
+            {"name": "discord", "title": "Discord", "desc": "Voice, video, and text communication for gamers", "source": "pacman"},
+            {"name": "retroarch", "title": "RetroArch", "desc": "Multi-system emulator frontend for classic games", "source": "pacman"},
+            {"name": "prismlauncher", "title": "Prism Launcher", "desc": "Custom Minecraft launcher with modpack support", "source": "pacman"},
+            {"name": "mangohud", "title": "MangoHud", "desc": "Vulkan and OpenGL overlay for monitoring FPS and temps", "source": "pacman"},
+            {"name": "bottles", "title": "Bottles", "desc": "Run Windows software and games using Wine environments", "source": "aur"},
+            {"name": "wine", "title": "Wine", "desc": "Compatibility layer capable of running Windows apps", "source": "pacman"},
+            {"name": "obs-studio", "title": "OBS Studio", "desc": "Capture, stream, and record your gameplay", "source": "pacman"},
+            {"name": "gamemode", "title": "GameMode", "desc": "Optimizes Linux system performance on demand", "source": "pacman"},
+            {"name": "ryujinx-bin", "title": "Ryujinx", "desc": "Experimental Nintendo Switch emulator written in C#", "source": "aur"},
         ]
     }
 ]
 FEATURED_APPS = CURATED_CATEGORIES
 
+# Dynamic Featured Applications Metadata & Editorial Catalog
+FEATURED_APP_METADATA: Dict[str, Dict[str, Any]] = {
+    "blender": {
+        "title": "Blender 3D Studio",
+        "tag": "FEATURED CREATIVE SUITE",
+        "sub": "Unleash next-gen 3D modeling, animation, physics simulation, and real-time photorealistic rendering",
+        "accent_color": "#eb7700",
+        "icon": "blender",
+        "source": "pacman",
+    },
+    "code": {
+        "title": "Visual Studio Code",
+        "tag": "DEVELOPER SPOTLIGHT",
+        "sub": "The world's most versatile code editor with intelligent AI autocompletion, debugging, and cloud workflows",
+        "accent_color": "#007acc",
+        "icon": "code",
+        "source": "pacman",
+    },
+    "steam": {
+        "title": "Steam on Linux",
+        "tag": "NEXT-GEN GAMING",
+        "sub": "Play thousands of native and Windows titles with seamless Proton performance",
+        "accent_color": "#66c0f4",
+        "bg": "linear-gradient(135deg, rgba(23, 29, 37, 0.5) 0%, rgba(102, 192, 244, 0.26) 50%, rgba(13, 17, 23, 0.95) 100%)",
+        "border": "rgba(102, 192, 244, 0.45)",
+        "icon": "steam",
+        "source": "pacman",
+    },
+    "obs-studio": {
+        "title": "OBS Studio",
+        "tag": "BROADCAST ESSENTIAL",
+        "sub": "Stream high-definition gameplay and capture pristine desktop broadcasts",
+        "accent_color": "#a371f7",
+        "icon": "obs-studio",
+        "source": "pacman",
+    },
+    "proton-vpn-gtk-app": {
+        "title": "Proton VPN",
+        "tag": "PRIVACY ESSENTIAL",
+        "sub": "High-speed encrypted WireGuard VPN tunnel with strict zero-logging policy and Swiss privacy",
+        "accent_color": "#6d4aff",
+        "icon": "proton-vpn-gtk-app",
+        "source": "pacman",
+    },
+    "kdenlive": {
+        "title": "Kdenlive Video Editor",
+        "tag": "NEXT-GEN CREATIVE",
+        "sub": "Powerful non-linear multi-track video editing with color grading, transitions, and audio mastering",
+        "accent_color": "#2980b9",
+        "icon": "kdenlive",
+        "source": "pacman",
+    },
+    "zed": {
+        "title": "Zed Code Editor",
+        "tag": "TRENDING IN DEV",
+        "sub": "Lightning-fast, GPU-accelerated code editor engineered in Rust for instantaneous collaboration",
+        "accent_color": "#47c8ff",
+        "icon": "zed",
+        "source": "aur",
+    },
+    "heroic-games-launcher-bin": {
+        "title": "Heroic Games Launcher",
+        "tag": "COMMUNITY FAVORITE",
+        "sub": "Modern native open-source launcher for Epic Games, GOG, and Amazon Prime Gaming on Linux",
+        "accent_color": "#d9534f",
+        "icon": "heroic",
+        "source": "aur",
+    },
+    "libreoffice-fresh": {
+        "title": "LibreOffice Fresh",
+        "tag": "EDITORS' CHOICE",
+        "sub": "Comprehensive enterprise-grade office productivity suite compatible with Microsoft Office formats",
+        "accent_color": "#18a058",
+        "icon": "libreoffice-main",
+        "source": "pacman",
+    },
+    "discord": {
+        "title": "Discord",
+        "tag": "COMMUNITY FAVORITE",
+        "sub": "All-in-one low-latency voice, video, and text communication for communities and gaming squads",
+        "accent_color": "#5865f2",
+        "icon": "discord",
+        "source": "pacman",
+    },
+    "spotify": {
+        "title": "Spotify",
+        "tag": "STREAMING SPOTLIGHT",
+        "sub": "Stream millions of high-fidelity tracks, personalized playlists, and podcasts directly on desktop",
+        "accent_color": "#1db954",
+        "icon": "spotify",
+        "source": "aur",
+    },
+    "gimp": {
+        "title": "GIMP Studio",
+        "tag": "FEATURED CREATIVE SUITE",
+        "sub": "Advanced open-source image manipulation, high-bit-depth retouching, and digital artwork creation",
+        "accent_color": "#e67e22",
+        "icon": "gimp",
+        "source": "pacman",
+    },
+    "neovim": {
+        "title": "Neovim",
+        "tag": "TRENDING IN DEV",
+        "sub": "Hyperextensible Vim-based text editor built for high-speed terminal coding and Lua plugins",
+        "accent_color": "#57a143",
+        "icon": "nvim",
+        "source": "pacman",
+    },
+    "alacritty": {
+        "title": "Alacritty Terminal",
+        "tag": "DEVELOPER SPOTLIGHT",
+        "sub": "Blazing-fast GPU-accelerated terminal emulator optimized for raw throughput and low latency",
+        "accent_color": "#f39c12",
+        "icon": "Alacritty",
+        "source": "pacman",
+    },
+    "kitty": {
+        "title": "Kitty Terminal",
+        "tag": "DEVELOPER SPOTLIGHT",
+        "sub": "Feature-rich GPU-accelerated terminal with tabs, splits, graphics protocol support, and scriptability",
+        "accent_color": "#2ecc71",
+        "icon": "kitty",
+        "source": "pacman",
+    },
+    "lutris": {
+        "title": "Lutris Gaming Platform",
+        "tag": "NEXT-GEN GAMING",
+        "sub": "Open gaming management platform organizing your GOG, Epic, Steam, Battle.net, and emulator libraries",
+        "accent_color": "#ff6f00",
+        "icon": "lutris",
+        "source": "pacman",
+    },
+    "retroarch": {
+        "title": "RetroArch",
+        "tag": "NEXT-GEN GAMING",
+        "sub": "The premier multi-system emulator frontend for classic consoles, handhelds, and arcade machines",
+        "accent_color": "#3498db",
+        "icon": "retroarch",
+        "source": "pacman",
+    },
+    "brave-bin": {
+        "title": "Brave Browser",
+        "tag": "PRIVACY ESSENTIAL",
+        "sub": "High-speed browser with native ad-blocking, tracker shielding, and Web3 capabilities",
+        "accent_color": "#fb542b",
+        "icon": "brave-browser",
+        "source": "aur",
+    },
+    "signal-desktop": {
+        "title": "Signal Desktop",
+        "tag": "PRIVACY ESSENTIAL",
+        "sub": "State-of-the-art end-to-end encrypted messaging with voice calls, video chats, and vanishing messages",
+        "accent_color": "#3a76f0",
+        "icon": "signal-desktop",
+        "source": "pacman",
+    },
+    "keepassxc": {
+        "title": "KeePassXC Vault",
+        "tag": "SECURITY ESSENTIAL",
+        "sub": "Secure offline password manager with AES-256 encryption, auto-type, and TOTP authentication",
+        "accent_color": "#52982d",
+        "icon": "keepassxc",
+        "source": "pacman",
+    },
+    "bitwarden": {
+        "title": "Bitwarden Vault",
+        "tag": "SECURITY ESSENTIAL",
+        "sub": "Open-source zero-knowledge password vault protecting credentials across all your devices",
+        "accent_color": "#175ddc",
+        "icon": "bitwarden",
+        "source": "pacman",
+    },
+    "obsidian": {
+        "title": "Obsidian",
+        "tag": "EDITORS' CHOICE",
+        "sub": "Second brain and knowledge graph application storing linked markdown notes locally on your filesystem",
+        "accent_color": "#7c3aed",
+        "icon": "obsidian",
+        "source": "aur",
+    },
+    "krita": {
+        "title": "Krita Digital Painting",
+        "tag": "FEATURED CREATIVE SUITE",
+        "sub": "Professional digital painting and illustration studio with world-class brush engines and stabilizers",
+        "accent_color": "#f368e0",
+        "icon": "krita",
+        "source": "pacman",
+    },
+    "inkscape": {
+        "title": "Inkscape Vector Studio",
+        "tag": "NEXT-GEN CREATIVE",
+        "sub": "Professional open-source vector graphics editor for diagrams, typography, logos, and illustration",
+        "accent_color": "#00d2d3",
+        "icon": "inkscape",
+        "source": "pacman",
+    },
+    "audacity": {
+        "title": "Audacity Audio Studio",
+        "tag": "AUDIO SPOTLIGHT",
+        "sub": "Multi-track audio editor, recorder, and mastering suite with real-time effects and spectrum analysis",
+        "accent_color": "#0984e3",
+        "icon": "audacity",
+        "source": "pacman",
+    },
+    "docker": {
+        "title": "Docker Platform",
+        "tag": "DEVELOPER SPOTLIGHT",
+        "sub": "Industry-standard container platform to build, package, and deploy isolated microservices effortlessly",
+        "accent_color": "#2496ed",
+        "icon": "docker",
+        "source": "pacman",
+    },
+    "postman-bin": {
+        "title": "Postman API Suite",
+        "tag": "TRENDING IN DEV",
+        "sub": "Complete API development platform for designing, testing, and mocking HTTP & GraphQL endpoints",
+        "accent_color": "#ff6c37",
+        "icon": "postman",
+        "source": "aur",
+    },
+    "btop": {
+        "title": "Btop Resource Monitor",
+        "tag": "SYSTEM SPOTLIGHT",
+        "sub": "Stunning aesthetic terminal monitor tracking CPU, GPU, memory, disks, and network with live graphs",
+        "accent_color": "#ff5370",
+        "icon": "btop",
+        "source": "pacman",
+    },
+    "timeshift": {
+        "title": "Timeshift System Restore",
+        "tag": "SYSTEM ESSENTIAL",
+        "sub": "Rock-solid system snapshot utility protecting your OS files using incremental BTRFS and RSYNC backups",
+        "accent_color": "#e056fd",
+        "icon": "timeshift",
+        "source": "pacman",
+    },
+    "vlc": {
+        "title": "VLC Media Player",
+        "tag": "COMMUNITY FAVORITE",
+        "sub": "Universal media player playing every format, codec, stream, and subtitle out of the box with zero fuss",
+        "accent_color": "#ff793f",
+        "icon": "vlc",
+        "source": "pacman",
+    },
+    "prismlauncher": {
+        "title": "Prism Launcher",
+        "tag": "COMMUNITY FAVORITE",
+        "sub": "High-performance custom Minecraft launcher with seamless modpack installation and instance isolation",
+        "accent_color": "#30d158",
+        "icon": "org.prismlauncher.PrismLauncher",
+        "source": "pacman",
+    },
+    "bottles": {
+        "title": "Bottles for Linux",
+        "tag": "NEXT-GEN GAMING",
+        "sub": "Easily manage Wine and Proton prefixes to run Windows software and games with custom environments",
+        "accent_color": "#54a0ff",
+        "icon": "com.usebottles.bottles",
+        "source": "aur",
+    },
+    "wireguard-tools": {
+        "title": "WireGuard",
+        "tag": "PRIVACY ESSENTIAL",
+        "sub": "Extremely fast, modern cryptographic network tunnel with peer-to-peer simplicity and minimal overhead",
+        "accent_color": "#8854d0",
+        "icon": "network-vpn",
+        "source": "pacman",
+    },
+    "telegram-desktop": {
+        "title": "Telegram Desktop",
+        "tag": "COMMUNITY FAVORITE",
+        "sub": "Blazing fast cloud messaging client with instant synchronization, giant channels, and voice chats",
+        "accent_color": "#0088cc",
+        "icon": "telegram",
+        "source": "pacman",
+    },
+    "fastfetch": {
+        "title": "Fastfetch",
+        "tag": "SYSTEM SPOTLIGHT",
+        "sub": "Lightning-fast, highly customizable modern system information display written in performant C",
+        "accent_color": "#00b894",
+        "icon": "fastfetch",
+        "source": "pacman",
+    },
+    "firefox": {
+        "title": "Firefox Browser",
+        "tag": "PRIVACY ESSENTIAL",
+        "sub": "Fast, independent browser with built-in total cookie protection, container tabs, and fingerprint resistance",
+        "accent_color": "#ff7139",
+        "icon": "firefox",
+        "source": "pacman",
+    },
+    "rust": {
+        "title": "Rust & Cargo",
+        "tag": "TRENDING IN DEV",
+        "sub": "Empowering everyone to build reliable, memory-safe, and blazingly fast modern systems",
+        "accent_color": "#ce412b",
+        "icon": "rust",
+        "source": "pacman",
+    },
+    "go": {
+        "title": "Go Language",
+        "tag": "DEVELOPER SPOTLIGHT",
+        "sub": "Fast, compiled, concurrency-focused programming language engineered by Google for cloud scale",
+        "accent_color": "#00add8",
+        "icon": "go",
+        "source": "pacman",
+    },
+    "dbeaver": {
+        "title": "DBeaver Studio",
+        "tag": "DEVELOPER SPOTLIGHT",
+        "sub": "Universal database management tool supporting PostgreSQL, MySQL, SQLite, and cloud databases",
+        "accent_color": "#377ba8",
+        "icon": "dbeaver",
+        "source": "pacman",
+    },
+    "joplin-desktop": {
+        "title": "Joplin Notes",
+        "tag": "EDITORS' CHOICE",
+        "sub": "Secure, open-source note-taking and to-do application with end-to-end encrypted synchronization",
+        "accent_color": "#1b6ac9",
+        "icon": "joplin",
+        "source": "aur",
+    },
+    "onlyoffice-bin": {
+        "title": "OnlyOffice",
+        "tag": "EDITORS' CHOICE",
+        "sub": "High-compatibility office suite featuring collaborative document, spreadsheet, and slide editing",
+        "accent_color": "#ff6f59",
+        "icon": "onlyoffice-desktopeditors",
+        "source": "aur",
+    },
+    "anytype-bin": {
+        "title": "Anytype",
+        "tag": "PRODUCTIVITY SPOTLIGHT",
+        "sub": "Next-generation private knowledge base and decentralized operating space for personal ideas",
+        "accent_color": "#f59e0b",
+        "icon": "anytype",
+        "source": "aur",
+    },
+    "foliate": {
+        "title": "Foliate Reader",
+        "tag": "EDITORS' CHOICE",
+        "sub": "Modern, distraction-free ebook reader with custom typography, annotations, and dictionary lookup",
+        "accent_color": "#10b981",
+        "icon": "com.github.johnfactotum.Foliate",
+        "source": "pacman",
+    },
+    "handbrake": {
+        "title": "HandBrake",
+        "tag": "MEDIA SPOTLIGHT",
+        "sub": "Universal open-source video transcoder converting videos to modern AV1, HEVC, and H.264 formats",
+        "accent_color": "#e74c3c",
+        "icon": "fr.handbrake.ghb",
+        "source": "pacman",
+    },
+    "mpv": {
+        "title": "mpv Video Player",
+        "tag": "MEDIA SPOTLIGHT",
+        "sub": "Minimalist, powerhouse GPU-accelerated video player with high-quality video scaling and shaders",
+        "accent_color": "#6c5ce7",
+        "icon": "mpv",
+        "source": "pacman",
+    },
+    "darktable": {
+        "title": "Darktable Photography",
+        "tag": "NEXT-GEN CREATIVE",
+        "sub": "Virtual lighttable and non-destructive RAW photo developer for professional photographers",
+        "accent_color": "#d35400",
+        "icon": "darktable",
+        "source": "pacman",
+    },
+    "ardour": {
+        "title": "Ardour Digital Audio",
+        "tag": "AUDIO SPOTLIGHT",
+        "sub": "Professional digital audio workstation (DAW) for recording, editing, mixing, and mastering",
+        "accent_color": "#c0392b",
+        "icon": "ardour",
+        "source": "pacman",
+    },
+    "gparted": {
+        "title": "GParted Partition Editor",
+        "tag": "SYSTEM ESSENTIAL",
+        "sub": "Graphical partition editor to resize, format, check, and reorganize hard drives and SSDs safely",
+        "accent_color": "#f39c12",
+        "icon": "gparted",
+        "source": "pacman",
+    },
+    "stacer-bin": {
+        "title": "Stacer Optimizer",
+        "tag": "SYSTEM SPOTLIGHT",
+        "sub": "Comprehensive Linux system optimizer, startup manager, and hardware monitoring dashboard",
+        "accent_color": "#3498db",
+        "icon": "stacer",
+        "source": "aur",
+    },
+    "gamemode": {
+        "title": "Feral GameMode",
+        "tag": "NEXT-GEN GAMING",
+        "sub": "System optimization daemon that tunes CPU governors and scheduler priorities for smooth frame rates",
+        "accent_color": "#e84118",
+        "icon": "applications-games",
+        "source": "pacman",
+    },
+    "mullvad-vpn-bin": {
+        "title": "Mullvad VPN",
+        "tag": "PRIVACY ESSENTIAL",
+        "sub": "Privacy-focused VPN with no personal data collection, WireGuard tunnels, and quantum-resistant encryption",
+        "accent_color": "#e5ad23",
+        "icon": "mullvad-vpn",
+        "source": "aur",
+    },
+    "torbrowser-launcher": {
+        "title": "Tor Browser",
+        "tag": "PRIVACY ESSENTIAL",
+        "sub": "Defend against tracking, surveillance, and censorship with multi-layered onion encryption routing",
+        "accent_color": "#7d4698",
+        "icon": "tor-browser",
+        "source": "pacman",
+    },
+    "lazygit": {
+        "title": "LazyGit",
+        "tag": "TRENDING IN DEV",
+        "sub": "Intuitive terminal graphical user interface for effortlessly navigating Git commits and branches",
+        "accent_color": "#ff6b6b",
+        "icon": "lazygit",
+        "source": "pacman",
+    },
+}
+
+FEATURED_CATEGORY_PRIORITIES: Dict[str, List[str]] = {
+    "media": [
+        "blender", "kdenlive", "obs-studio", "gimp", "inkscape",
+        "audacity", "handbrake", "mpv", "darktable", "ardour", "vlc", "spotify"
+    ],
+    "dev": [
+        "code", "zed", "neovim", "alacritty", "kitty",
+        "postman-bin", "docker", "rust", "go", "dbeaver", "lazygit", "git"
+    ],
+    "games": [
+        "steam", "heroic-games-launcher-bin", "lutris", "retroarch",
+        "prismlauncher", "bottles", "gamemode", "ryujinx-bin", "mangohud", "wine", "discord"
+    ],
+    "privacy": [
+        "proton-vpn-gtk-app", "brave-bin", "signal-desktop", "keepassxc",
+        "bitwarden", "wireguard-tools", "mullvad-vpn-bin", "torbrowser-launcher", "tailscale", "thunderbird", "wireshark-qt", "bleachbit"
+    ],
+    "productivity": [
+        "libreoffice-fresh", "obsidian", "krita", "joplin-desktop",
+        "onlyoffice-bin", "anytype-bin", "foliate", "micro", "evince", "thunar", "fastfetch"
+    ],
+    "system": [
+        "btop", "timeshift", "fastfetch", "gparted",
+        "stacer-bin", "fish", "htop", "baobab", "hardinfo-git"
+    ],
+    "essential": [
+        "firefox", "discord", "telegram-desktop", "spotify",
+        "vlc", "bitwarden", "code", "steam", "blender", "obs-studio", "gimp", "proton-vpn-gtk-app"
+    ],
+}
+
+CATEGORY_TAG_DEFAULTS: Dict[str, str] = {
+    "media": "FEATURED CREATIVE SUITE",
+    "dev": "DEVELOPER SPOTLIGHT",
+    "games": "NEXT-GEN GAMING",
+    "privacy": "PRIVACY ESSENTIAL",
+    "productivity": "EDITORS' CHOICE",
+    "system": "SYSTEM SPOTLIGHT",
+    "essential": "COMMUNITY FAVORITE",
+}
+
+CATEGORY_ACCENT_DEFAULTS: Dict[str, str] = {
+    "media": "#eb7700",
+    "dev": "#007acc",
+    "games": "#66c0f4",
+    "privacy": "#6d4aff",
+    "productivity": "#18a058",
+    "system": "#ff5370",
+    "essential": "#30d158",
+}
+
+def _color_to_gradient_and_border(hex_color: str, alpha_bg: float = 0.28, alpha_border: float = 0.45) -> Tuple[str, str]:
+    """Generate modern atmospheric gradient background and subtle accent border from hex color."""
+    h = hex_color.lstrip("#")
+    if len(h) == 6:
+        try:
+            r = int(h[0:2], 16)
+            g = int(h[2:4], 16)
+            b = int(h[4:6], 16)
+        except ValueError:
+            r, g, b = (10, 132, 255)
+    else:
+        r, g, b = (10, 132, 255)
+    bg = f"linear-gradient(135deg, rgba({r}, {g}, {b}, {alpha_bg}) 0%, rgba(20, 24, 33, 0.95) 100%)"
+    border = f"rgba({r}, {g}, {b}, {alpha_border})"
+    return bg, border
+
 # Human-friendly Apple App Store display names
 APP_DISPLAY_NAMES: Dict[str, str] = {
     "firefox": "Firefox",
     "firefox-pure": "Firefox",
+    "firefox-developer-edition": "Firefox Developer Edition",
     "code": "Visual Studio Code",
     "visual-studio-code-bin": "Visual Studio Code",
     "discord": "Discord",
@@ -160,12 +701,14 @@ APP_DISPLAY_NAMES: Dict[str, str] = {
     "zen-browser-bin": "Zen Browser",
     "chromium": "Chromium",
     "torbrowser-launcher": "Tor Browser",
-    "telegram-desktop": "Telegram",
-    "signal-desktop": "Signal",
+    "telegram-desktop": "Telegram Desktop",
+    "telegram": "Telegram",
+    "signal-desktop": "Signal Desktop",
+    "signal": "Signal",
     "obs-studio": "OBS Studio",
     "vlc": "VLC Media Player",
     "lutris": "Lutris",
-    "btop": "btop Monitor",
+    "btop": "Btop",
     "fastfetch": "Fastfetch",
     "foot": "Foot Terminal",
     "micro": "Micro Editor",
@@ -177,7 +720,7 @@ APP_DISPLAY_NAMES: Dict[str, str] = {
     "mpv": "mpv",
     "qbittorrent": "qBittorrent",
     "wireshark-qt": "Wireshark",
-    "htop": "htop",
+    "htop": "Htop",
     "nvtop": "nvtop",
     "libreoffice-fresh": "LibreOffice",
     "libreoffice-still": "LibreOffice",
@@ -189,6 +732,49 @@ APP_DISPLAY_NAMES: Dict[str, str] = {
     "retroarch": "RetroArch",
     "bottles": "Bottles",
     "mangohud": "MangoHud",
+    "bitwarden": "Bitwarden",
+    "lazygit": "LazyGit",
+    "zed": "Zed",
+    "postman-bin": "Postman",
+    "postman": "Postman",
+    "rust": "Rust & Cargo",
+    "go": "Go",
+    "dbeaver": "DBeaver",
+    "pavucontrol": "Volume Control",
+    "joplin-desktop": "Joplin",
+    "joplin": "Joplin",
+    "onlyoffice-bin": "OnlyOffice",
+    "onlyoffice": "OnlyOffice",
+    "anytype-bin": "Anytype",
+    "anytype": "Anytype",
+    "evince": "Evince",
+    "krita": "Krita",
+    "foliate": "Foliate",
+    "keepassxc": "KeepassXC",
+    "wireguard-tools": "WireGuard",
+    "wireguard": "WireGuard",
+    "mullvad-vpn-bin": "Mullvad VPN",
+    "mullvad-vpn": "Mullvad VPN",
+    "bleachbit": "BleachBit",
+    "tailscale": "Tailscale",
+    "thunderbird": "Thunderbird",
+    "handbrake": "HandBrake",
+    "darktable": "Darktable",
+    "ardour": "Ardour",
+    "gparted": "GParted",
+    "timeshift": "Timeshift",
+    "baobab": "Baobab",
+    "stacer-bin": "Stacer",
+    "stacer": "Stacer",
+    "fish": "Fish Shell",
+    "hardinfo-git": "Hardinfo",
+    "hardinfo": "Hardinfo",
+    "hardinfo2": "Hardinfo",
+    "prismlauncher": "Prism Launcher",
+    "wine": "Wine",
+    "gamemode": "GameMode",
+    "ryujinx-bin": "Ryujinx",
+    "ryujinx": "Ryujinx",
 }
 
 APP_EXTENDED_DESCRIPTIONS: Dict[str, str] = {
@@ -591,6 +1177,40 @@ def resolve_icon_name(pkg_name: str, desc: str = "") -> str:
         "retroarch": "retroarch",
         "bottles": "com.usebottles.bottles",
         "mangohud": "utilities-system-monitor",
+        "bitwarden": "bitwarden",
+        "lazygit": "lazygit",
+        "zed": "dev.zed.Zed",
+        "postman-bin": "postman",
+        "postman": "postman",
+        "dbeaver": "dbeaver",
+        "joplin-desktop": "joplin",
+        "joplin": "joplin",
+        "onlyoffice-bin": "onlyoffice-desktopeditors",
+        "anytype-bin": "anytype",
+        "evince": "org.gnome.Evince",
+        "krita": "krita",
+        "foliate": "com.github.johnfactotum.Foliate",
+        "keepassxc": "org.keepassxc.KeePassXC",
+        "wireguard-tools": "network-vpn",
+        "bleachbit": "bleachbit",
+        "tailscale": "tailscale",
+        "thunderbird": "org.mozilla.Thunderbird",
+        "handbrake": "fr.handbrake.ghb",
+        "darktable": "darktable",
+        "ardour": "ardour",
+        "gparted": "gparted",
+        "timeshift": "timeshift",
+        "baobab": "org.gnome.baobab",
+        "stacer-bin": "stacer",
+        "stacer": "stacer",
+        "hardinfo-git": "hardinfo",
+        "hardinfo": "hardinfo",
+        "hardinfo2": "hardinfo",
+        "prismlauncher": "org.prismlauncher.PrismLauncher",
+        "wine": "wine",
+        "gamemode": "preferences-system",
+        "ryujinx-bin": "ryujinx",
+        "ryujinx": "ryujinx",
     }
     if name in overrides:
         return overrides[name]
@@ -741,6 +1361,8 @@ class PackageManager:
         self.container_mgr = ContainerManager()
         # Load installed packages synchronously so cards immediately reflect installed status
         self.refresh_installed()
+        self._featured_rotation_offset: int = int(time.time() / 1800) % 20
+        self._current_featured_apps: Optional[List[Dict[str, Any]]] = None
 
     def refresh_installed(self):
         """Quickly reload the list of installed packages and their versions."""
@@ -780,6 +1402,92 @@ class PackageManager:
             if ov in self.installed_set:
                 return True
         return False
+
+    def get_dynamic_featured_apps(self, count: int = 5) -> List[Dict[str, Any]]:
+        """
+        Dynamically return high-impact featured spotlight applications with curated
+        metadata, authentic tags, descriptions, and custom atmospheric palettes.
+        """
+        candidates = [
+            {
+                "id": "blender",
+                "source": "pacman",
+                "tag": "FEATURED 3D STUDIO",
+                "title": "Blender 3D Studio",
+                "sub": "Unleash next-gen modeling, animation, physics simulation, and real-time photorealistic rendering",
+                "bg": "radial-gradient(circle at 80% 50%, rgba(235, 119, 0, 0.30) 0%, rgba(235, 119, 0, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(235, 119, 0, 0.22) 0%, rgba(20, 24, 32, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+                "border": "rgba(235, 119, 0, 0.38)",
+                "icon": "blender",
+                "color": "#eb7700",
+            },
+            {
+                "id": "code",
+                "source": "pacman",
+                "tag": "DEVELOPER SPOTLIGHT",
+                "title": "Visual Studio Code",
+                "sub": "The world's most versatile code editor with intelligent autocompletion and rich language tooling",
+                "bg": "radial-gradient(circle at 80% 50%, rgba(0, 122, 204, 0.30) 0%, rgba(0, 122, 204, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(0, 122, 204, 0.25) 0%, rgba(18, 24, 34, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+                "border": "rgba(0, 122, 204, 0.38)",
+                "icon": "code",
+                "color": "#007acc",
+            },
+            {
+                "id": "steam",
+                "source": "pacman",
+                "tag": "PRO GAMING PLATFORM",
+                "title": "Steam on Linux",
+                "sub": "Play thousands of native and Windows titles with seamless Proton performance and community integration",
+                "bg": "radial-gradient(circle at 80% 50%, rgba(102, 192, 244, 0.30) 0%, rgba(102, 192, 244, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(23, 29, 37, 0.6) 0%, rgba(102, 192, 244, 0.22) 45%, rgba(13, 17, 23, 0.98) 100%)",
+                "border": "rgba(102, 192, 244, 0.38)",
+                "icon": "steam",
+                "color": "#66c0f4",
+            },
+            {
+                "id": "obs-studio",
+                "source": "pacman",
+                "tag": "BROADCAST ESSENTIAL",
+                "title": "OBS Studio",
+                "sub": "Stream high-definition gameplay and record pristine multi-source desktop broadcasts",
+                "bg": "radial-gradient(circle at 80% 50%, rgba(163, 113, 247, 0.30) 0%, rgba(163, 113, 247, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(48, 54, 61, 0.4) 0%, rgba(163, 113, 247, 0.24) 55%, rgba(13, 17, 23, 0.98) 100%)",
+                "border": "rgba(163, 113, 247, 0.38)",
+                "icon": "obs-studio",
+                "color": "#a371f7",
+            },
+            {
+                "id": "proton-vpn-gtk-app",
+                "source": "pacman",
+                "tag": "SECURITY & PRIVACY",
+                "title": "Proton VPN",
+                "sub": "High-speed encrypted WireGuard VPN tunnel with strict zero-logging and built-in Kill Switch",
+                "bg": "radial-gradient(circle at 80% 50%, rgba(109, 74, 255, 0.30) 0%, rgba(109, 74, 255, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(109, 74, 255, 0.25) 0%, rgba(20, 20, 35, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+                "border": "rgba(109, 74, 255, 0.38)",
+                "icon": "proton-vpn-gtk-app",
+                "color": "#6d4aff",
+            },
+            {
+                "id": "firefox",
+                "source": "pacman",
+                "tag": "FAST & PRIVATE",
+                "title": "Mozilla Firefox",
+                "sub": "High-performance privacy browser with enhanced tracking protection and minimal system overhead",
+                "bg": "radial-gradient(circle at 80% 50%, rgba(255, 113, 57, 0.30) 0%, rgba(255, 113, 57, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(255, 113, 57, 0.22) 0%, rgba(26, 18, 28, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+                "border": "rgba(255, 113, 57, 0.38)",
+                "icon": "firefox",
+                "color": "#ff7139",
+            },
+            {
+                "id": "gimp",
+                "source": "pacman",
+                "tag": "CREATIVE SUITE",
+                "title": "GIMP Image Studio",
+                "sub": "Professional-grade photo retouching, graphic design, and advanced raster composition",
+                "bg": "radial-gradient(circle at 80% 50%, rgba(92, 158, 173, 0.30) 0%, rgba(92, 158, 173, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(92, 158, 173, 0.22) 0%, rgba(18, 26, 30, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+                "border": "rgba(92, 158, 173, 0.38)",
+                "icon": "gimp",
+                "color": "#5c9ead",
+            },
+        ]
+        return candidates[:count]
 
     def get_installed_desktop_apps(self) -> List[Dict[str, Any]]:
         """Return list of real installed desktop applications with .desktop launchers."""
@@ -861,6 +1569,147 @@ class PackageManager:
 
         apps.sort(key=lambda x: x["display_name"].lower())
         return apps
+
+    def _format_featured_app(self, app_id: str, cat_id: str = "", app_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Produce rich editorial metadata for a featured application."""
+        curated = FEATURED_APP_METADATA.get(app_id)
+        if curated:
+            accent_color = curated.get("accent_color", CATEGORY_ACCENT_DEFAULTS.get(cat_id, "#0a84ff"))
+            def_bg, def_border = _color_to_gradient_and_border(accent_color)
+            bg = curated.get("bg", def_bg)
+            border = curated.get("border", def_border)
+            sub = curated.get("sub") or (app_info.get("desc") if app_info else "")
+            source = curated.get("source") or (app_info.get("source") if app_info else "pacman")
+            icon = curated.get("icon") or resolve_icon_name(app_id, sub)
+            tag = curated.get("tag", CATEGORY_TAG_DEFAULTS.get(cat_id, "EDITORS' CHOICE"))
+            title = curated.get("title", APP_DISPLAY_NAMES.get(app_id, app_id.title()))
+            return {
+                "id": app_id,
+                "source": source,
+                "tag": tag,
+                "title": title,
+                "sub": sub,
+                "bg": bg,
+                "border": border,
+                "accent_color": accent_color,
+                "icon": icon,
+                "is_installed": self.is_installed(app_id),
+            }
+
+        # Dynamic fallback for any catalog app
+        accent_color = CATEGORY_ACCENT_DEFAULTS.get(cat_id, "#0a84ff")
+        bg, border = _color_to_gradient_and_border(accent_color)
+        source = app_info.get("source", "pacman") if app_info else "pacman"
+        title = APP_DISPLAY_NAMES.get(
+            app_id,
+            app_info.get("title", app_id.replace("-", " ").title()) if app_info else app_id.replace("-", " ").title()
+        )
+        sub = APP_EXTENDED_DESCRIPTIONS.get(
+            app_id,
+            app_info.get("desc", f"High-performance {cat_id} application for modern Linux") if app_info else ""
+        )
+        icon = resolve_icon_name(app_id, sub)
+        tag = CATEGORY_TAG_DEFAULTS.get(cat_id, "EDITORS' CHOICE")
+        return {
+            "id": app_id,
+            "source": source,
+            "tag": tag,
+            "title": title,
+            "sub": sub,
+            "bg": bg,
+            "border": border,
+            "accent_color": accent_color,
+            "icon": icon,
+            "is_installed": self.is_installed(app_id),
+        }
+
+    def get_dynamic_featured_apps(
+        self,
+        count: int = 5,
+        refresh: bool = False,
+        rotate: bool = False,
+        seed: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Dynamically select 5-6 exciting, varied featured applications across diverse
+        categories from the 84+ application catalog with rich editorial styling.
+        Allows dynamic rotation or refreshing on each invocation.
+        """
+        if count <= 0:
+            count = 5
+
+        # Handle rotation or refresh requests
+        if refresh or rotate:
+            self._featured_rotation_offset = (self._featured_rotation_offset + 1) % 20
+            self._current_featured_apps = None
+
+        if self._current_featured_apps is not None and not refresh and not rotate and seed is None:
+            if len(self._current_featured_apps) == count:
+                # Refresh installed status dynamically
+                for item in self._current_featured_apps:
+                    item["is_installed"] = self.is_installed(item["id"])
+                return self._current_featured_apps
+
+        offset = seed if seed is not None else self._featured_rotation_offset
+
+        # Build category map from CURATED_CATEGORIES
+        cat_map = {cat["id"]: cat for cat in CURATED_CATEGORIES}
+
+        # Diverse category ordering: 1 Creative/Media, 1 Dev, 1 Gaming, 1 Privacy, 1 Productivity, 1 System, 1 Essential
+        core_categories = ["media", "dev", "games", "privacy", "productivity", "system", "essential"]
+        cat_shift = (offset // len(core_categories)) % len(core_categories)
+        rotated_cats = [core_categories[(cat_shift + i) % len(core_categories)] for i in range(len(core_categories))]
+        chosen_cats = rotated_cats[:count]
+
+        seen_ids: Set[str] = set()
+        featured_apps: List[Dict[str, Any]] = []
+
+        for cat_id in chosen_cats:
+            cands = FEATURED_CATEGORY_PRIORITIES.get(cat_id)
+            if not cands and cat_id in cat_map:
+                cands = [a["name"] for a in cat_map[cat_id]["apps"]]
+            if not cands:
+                continue
+
+            app_dict = {}
+            if cat_id in cat_map:
+                app_dict = {a["name"]: a for a in cat_map[cat_id]["apps"]}
+
+            chosen_pkg = None
+            for step in range(len(cands)):
+                cand_pkg = cands[(offset + step) % len(cands)]
+                if cand_pkg not in seen_ids:
+                    chosen_pkg = cand_pkg
+                    seen_ids.add(cand_pkg)
+                    break
+
+            if chosen_pkg:
+                app_info = app_dict.get(chosen_pkg)
+                slide_meta = self._format_featured_app(chosen_pkg, cat_id=cat_id, app_info=app_info)
+                featured_apps.append(slide_meta)
+
+        # Fallback if fewer than count were picked
+        if len(featured_apps) < count:
+            for cat in CURATED_CATEGORIES:
+                cat_id = cat["id"]
+                for app in cat["apps"]:
+                    pkg = app["name"]
+                    if pkg not in seen_ids:
+                        seen_ids.add(pkg)
+                        featured_apps.append(self._format_featured_app(pkg, cat_id=cat_id, app_info=app))
+                        if len(featured_apps) >= count:
+                            break
+                if len(featured_apps) >= count:
+                    break
+
+        if seed is None:
+            self._current_featured_apps = featured_apps
+
+        return featured_apps
+
+    def rotate_featured_apps(self, count: int = 5) -> List[Dict[str, Any]]:
+        """Advance rotation and return the next exciting batch of featured applications."""
+        return self.get_dynamic_featured_apps(count=count, refresh=True)
 
     def check_updates(self) -> List[Dict[str, str]]:
         """Check for upgradable packages and return detailed list."""
@@ -1577,7 +2426,7 @@ class ContainerManager:
         },
         {
             "id": "gimp",
-            "name": "GNU Image Manipulation",
+            "name": "GNU Image Manipulation (GIMP)",
             "desc": "High-powered image retouching, composition and digital artwork",
             "category": "Graphics & Media",
             "icon": "gimp",
@@ -1587,7 +2436,7 @@ class ContainerManager:
         },
         {
             "id": "inkscape",
-            "name": "Inkscape Vector Editor",
+            "name": "Inkscape Vector Graphics",
             "desc": "Professional vector graphics editor for diagrams and illustrations",
             "category": "Graphics & Media",
             "icon": "org.inkscape.Inkscape",
@@ -1616,44 +2465,14 @@ class ContainerManager:
             "size": "55 MB",
         },
         {
-            "id": "steam",
-            "name": "Steam Gaming",
-            "desc": "Sandboxed digital gaming platform and Proton game launcher",
-            "category": "Gaming",
-            "icon": "steam",
-            "binary": "steam",
-            "pkg": "steam",
-            "size": "65 MB",
-        },
-        {
-            "id": "neovim",
-            "name": "Neovim IDE",
-            "desc": "Hyperextensible terminal-based editor with isolated toolchains",
-            "category": "Development",
-            "icon": "nvim",
-            "binary": "nvim",
-            "pkg": "neovim",
-            "size": "30 MB",
-        },
-        {
-            "id": "vlc",
-            "name": "VLC Media Player",
-            "desc": "Universal media player supporting virtually all video formats",
-            "category": "Graphics & Media",
-            "icon": "vlc",
-            "binary": "vlc",
-            "pkg": "vlc",
-            "size": "40 MB",
-        },
-        {
-            "id": "retroarch",
-            "name": "RetroArch",
-            "desc": "Cross-platform frontend for classic video game emulators",
-            "category": "Gaming",
-            "icon": "retroarch",
-            "binary": "retroarch",
-            "pkg": "retroarch",
-            "size": "50 MB",
+            "id": "firefox-developer-edition",
+            "name": "Firefox Developer Edition",
+            "desc": "Developer-tailored desktop browser with web inspector and debugging tools",
+            "category": "Internet & Network",
+            "icon": "firefox-developer-edition",
+            "binary": "firefox",
+            "pkg": "firefox",
+            "size": "95 MB",
         },
         {
             "id": "kdenlive",
@@ -1667,13 +2486,23 @@ class ContainerManager:
         },
         {
             "id": "audacity",
-            "name": "Audacity",
+            "name": "Audacity Audio Editor",
             "desc": "Multi-track audio recorder and waveform sound editor",
             "category": "Graphics & Media",
             "icon": "audacity",
             "binary": "audacity",
             "pkg": "audacity",
             "size": "45 MB",
+        },
+        {
+            "id": "vlc",
+            "name": "VLC Media Player",
+            "desc": "Universal media player supporting virtually all video formats",
+            "category": "Graphics & Media",
+            "icon": "vlc",
+            "binary": "vlc",
+            "pkg": "vlc",
+            "size": "40 MB",
         },
     ]
 

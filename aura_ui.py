@@ -16,6 +16,7 @@ Pixel-perfect recreation of the macOS / iOS 27 App Store UI:
 import os
 import sys
 import re
+import time
 import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -341,6 +342,155 @@ scrolledwindow viewport {
     background-color: rgba(255, 255, 255, 0.06);
     min-height: 1px;
     margin: 10px 6px;
+}
+
+/* =========================================================================
+   Animated Mac Hero Carousel / Slideshow
+   ========================================================================= */
+.mac-hero-carousel {
+    border-radius: 18px;
+    min-height: 195px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+.mac-hero-slide {
+    padding: 0;
+    margin: 0;
+    border-radius: 18px;
+    min-height: 195px;
+    transition: all 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mac-hero-slide-0 {
+    background: radial-gradient(circle at 80% 50%, rgba(235, 119, 0, 0.30) 0%, rgba(235, 119, 0, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(235, 119, 0, 0.22) 0%, rgba(20, 24, 32, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%);
+    border: 1px solid rgba(235, 119, 0, 0.38);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.mac-hero-slide-1 {
+    background: radial-gradient(circle at 80% 50%, rgba(0, 122, 204, 0.30) 0%, rgba(0, 122, 204, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(0, 122, 204, 0.25) 0%, rgba(18, 24, 34, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%);
+    border: 1px solid rgba(0, 122, 204, 0.38);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.mac-hero-slide-2 {
+    background: radial-gradient(circle at 80% 50%, rgba(102, 192, 244, 0.30) 0%, rgba(102, 192, 244, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(23, 29, 37, 0.6) 0%, rgba(102, 192, 244, 0.22) 45%, rgba(13, 17, 23, 0.98) 100%);
+    border: 1px solid rgba(102, 192, 244, 0.38);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.mac-hero-slide-3 {
+    background: radial-gradient(circle at 80% 50%, rgba(163, 113, 247, 0.30) 0%, rgba(163, 113, 247, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(48, 54, 61, 0.4) 0%, rgba(163, 113, 247, 0.24) 55%, rgba(13, 17, 23, 0.98) 100%);
+    border: 1px solid rgba(163, 113, 247, 0.38);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.mac-hero-slide-4 {
+    background: radial-gradient(circle at 80% 50%, rgba(109, 74, 255, 0.30) 0%, rgba(109, 74, 255, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(109, 74, 255, 0.25) 0%, rgba(20, 20, 35, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%);
+    border: 1px solid rgba(109, 74, 255, 0.38);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.mac-hero-watermark {
+    opacity: 0.12;
+}
+
+.mac-hero-tag {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #0a84ff;
+}
+
+.mac-hero-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: -0.3px;
+}
+
+.mac-hero-sub {
+    font-size: 13px;
+    color: #a1a1a6;
+    line-height: 1.4;
+}
+
+.mac-hero-squircle {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 22px;
+    min-width: 88px;
+    min-height: 88px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    padding: 0;
+    margin: 0;
+}
+
+.mac-hero-squircle image {
+    margin: auto;
+}
+
+button.mac-hero-nav-btn,
+.mac-hero-nav-btn {
+    min-width: 34px;
+    min-height: 34px;
+    padding: 0;
+    margin: 0;
+    border-radius: 9999px;
+    background: rgba(20, 20, 25, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    backdrop-filter: blur(12px);
+    color: #ffffff;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+    transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    outline: none;
+}
+
+button.mac-hero-nav-btn:hover,
+.mac-hero-nav-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.35);
+    transform: scale(1.12);
+}
+
+button.mac-hero-nav-btn:active,
+.mac-hero-nav-btn:active {
+    transform: scale(0.96);
+    background: rgba(255, 255, 255, 0.28);
+}
+
+button.mac-hero-dot,
+.mac-hero-dot {
+    min-width: 7px;
+    min-height: 7px;
+    border-radius: 9999px;
+    background-color: rgba(255, 255, 255, 0.3);
+    border: none;
+    padding: 0;
+    margin: 0 3px;
+    outline: none;
+    box-shadow: none;
+    transition: all 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+button.mac-hero-dot:hover,
+.mac-hero-dot:hover {
+    background-color: rgba(255, 255, 255, 0.6);
+}
+
+button.mac-hero-dot-active,
+.mac-hero-dot-active {
+    min-width: 22px;
+    min-height: 7px;
+    border-radius: 9999px;
+    background-color: rgba(255, 255, 255, 0.9);
+    border: none;
+    padding: 0;
+    margin: 0 3px;
+    outline: none;
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+    transition: all 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Top Spotlight Showcase Cards */
@@ -1032,6 +1182,375 @@ flowboxchild:focus {
 """
 
 
+DEFAULT_HERO_SLIDES = [
+    {
+        "id": "blender",
+        "source": "pacman",
+        "tag": "FEATURED 3D STUDIO",
+        "title": "Blender 3D Studio",
+        "sub": "Unleash next-gen modeling, animation, physics simulation, and real-time photorealistic rendering",
+        "bg": "radial-gradient(circle at 80% 50%, rgba(235, 119, 0, 0.30) 0%, rgba(235, 119, 0, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(235, 119, 0, 0.22) 0%, rgba(20, 24, 32, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(235, 119, 0, 0.38)",
+        "icon": "blender",
+        "color": "#eb7700",
+    },
+    {
+        "id": "code",
+        "source": "pacman",
+        "tag": "DEVELOPER SPOTLIGHT",
+        "title": "Visual Studio Code",
+        "sub": "The world's most versatile code editor with intelligent autocompletion and rich language tooling",
+        "bg": "radial-gradient(circle at 80% 50%, rgba(0, 122, 204, 0.30) 0%, rgba(0, 122, 204, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(0, 122, 204, 0.25) 0%, rgba(18, 24, 34, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(0, 122, 204, 0.38)",
+        "icon": "code",
+        "color": "#007acc",
+    },
+    {
+        "id": "steam",
+        "source": "pacman",
+        "tag": "PRO GAMING PLATFORM",
+        "title": "Steam on Linux",
+        "sub": "Play thousands of native and Windows titles with seamless Proton performance and community integration",
+        "bg": "radial-gradient(circle at 80% 50%, rgba(102, 192, 244, 0.30) 0%, rgba(102, 192, 244, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(23, 29, 37, 0.6) 0%, rgba(102, 192, 244, 0.22) 45%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(102, 192, 244, 0.38)",
+        "icon": "steam",
+        "color": "#66c0f4",
+    },
+    {
+        "id": "obs-studio",
+        "source": "pacman",
+        "tag": "BROADCAST ESSENTIAL",
+        "title": "OBS Studio",
+        "sub": "Stream high-definition gameplay and record pristine multi-source desktop broadcasts",
+        "bg": "radial-gradient(circle at 80% 50%, rgba(163, 113, 247, 0.30) 0%, rgba(163, 113, 247, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(48, 54, 61, 0.4) 0%, rgba(163, 113, 247, 0.24) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(163, 113, 247, 0.38)",
+        "icon": "obs-studio",
+        "color": "#a371f7",
+    },
+    {
+        "id": "proton-vpn-gtk-app",
+        "source": "pacman",
+        "tag": "SECURITY & PRIVACY",
+        "title": "Proton VPN",
+        "sub": "High-speed encrypted WireGuard VPN tunnel with strict zero-logging and built-in Kill Switch",
+        "bg": "radial-gradient(circle at 80% 50%, rgba(109, 74, 255, 0.30) 0%, rgba(109, 74, 255, 0.05) 50%, transparent 75%), linear-gradient(135deg, rgba(109, 74, 255, 0.25) 0%, rgba(20, 20, 35, 0.95) 55%, rgba(13, 17, 23, 0.98) 100%)",
+        "border": "rgba(109, 74, 255, 0.38)",
+        "icon": "proton-vpn-gtk-app",
+        "color": "#6d4aff",
+    },
+]
+
+
+class MacHeroCarousel(Gtk.Overlay):
+    """
+    Authentic macOS App Store & GNOME Software Animated Hero Carousel / Slideshow.
+    Features:
+    - Dynamic featured application spotlight via PackageManager
+    - Multi-stop atmospheric gradients with rich radial glow
+    - 160px semi-transparent watermarked background graphic
+    - Strictly dead-centered 88x88 squircle icon container
+    - Floating frosted glass navigation arrows with generous margins
+    - Interactive pagination pills (elongated active pill, jumping on click)
+    - Dynamic action button (OPEN if installed, GET otherwise)
+    - Full-card click opening package inspector
+    - 5-second auto-advance slideshow with pause on mouse hover
+    """
+    def __init__(self, aura_window):
+        super().__init__()
+        self.aura_window = aura_window
+        self.add_css_class("mac-hero-carousel")
+        self.set_hexpand(True)
+        self.set_size_request(-1, 195)
+        self._last_open_time = 0.0
+
+        # Dynamic slides support via PackageManager
+        featured = None
+        if hasattr(self.aura_window, "pm") and self.aura_window.pm:
+            try:
+                if hasattr(self.aura_window.pm, "get_dynamic_featured_apps"):
+                    featured = self.aura_window.pm.get_dynamic_featured_apps(count=5)
+            except Exception as e:
+                print(f"[Aura] Error loading dynamic featured apps: {e}", file=sys.stderr)
+
+        if featured and isinstance(featured, list) and len(featured) > 0:
+            self.slides = featured[:5]
+        else:
+            self.slides = list(DEFAULT_HERO_SLIDES)
+
+        self.current_idx = 0
+        self._is_hovered = False
+        self._timer_id = None
+
+        # Main Carousel Stack with smooth crossfade
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.stack.set_transition_duration(220)
+        self.stack.set_hexpand(True)
+        self.stack.set_vexpand(False)
+        self.stack.set_size_request(-1, 195)
+
+        for idx, slide in enumerate(self.slides):
+            # Dynamic slide style injection if slide provides custom bg / border
+            bg = slide.get("bg")
+            border = slide.get("border")
+            if bg or border:
+                css_rules = f".mac-hero-slide-{idx} {{"
+                if bg:
+                    css_rules += f" background: {bg};"
+                if border:
+                    css_rules += f" border: 1px solid {border};"
+                css_rules += " }"
+                accent = slide.get("accent_color") or slide.get("color")
+                if accent:
+                    css_rules += f" .mac-hero-slide-{idx} .mac-hero-tag {{ color: {accent}; }}"
+                prov = Gtk.CssProvider()
+                prov.load_from_data(css_rules.encode("utf-8"))
+                display = Gdk.Display.get_default()
+                if display:
+                    Gtk.StyleContext.add_provider_for_display(display, prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+            slide_box = self._build_slide(idx, slide)
+            self.stack.add_named(slide_box, f"slide_{idx}")
+
+        self.set_child(self.stack)
+
+        # Floating Left Navigation Arrow (34x34 Frosted Circle with 16px margin)
+        self.left_btn = Gtk.Button()
+        self.left_btn.add_css_class("mac-hero-nav-btn")
+        self.left_btn.set_valign(Gtk.Align.CENTER)
+        self.left_btn.set_halign(Gtk.Align.START)
+        self.left_btn.set_margin_start(16)
+        self.left_btn.set_size_request(34, 34)
+        left_icon = Gtk.Image.new_from_icon_name("go-previous-symbolic")
+        left_icon.set_pixel_size(14)
+        self.left_btn.set_child(left_icon)
+        self.left_btn.set_tooltip_text("Previous slide")
+        self.left_btn.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+        self.left_btn.connect("clicked", lambda b: self._prev_slide())
+        self.add_overlay(self.left_btn)
+
+        # Floating Right Navigation Arrow (34x34 Frosted Circle with 16px margin)
+        self.right_btn = Gtk.Button()
+        self.right_btn.add_css_class("mac-hero-nav-btn")
+        self.right_btn.set_valign(Gtk.Align.CENTER)
+        self.right_btn.set_halign(Gtk.Align.END)
+        self.right_btn.set_margin_end(16)
+        self.right_btn.set_size_request(34, 34)
+        right_icon = Gtk.Image.new_from_icon_name("go-next-symbolic")
+        right_icon.set_pixel_size(14)
+        self.right_btn.set_child(right_icon)
+        self.right_btn.set_tooltip_text("Next slide")
+        self.right_btn.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+        self.right_btn.connect("clicked", lambda b: self._next_slide())
+        self.add_overlay(self.right_btn)
+
+        # Bottom Indicator Pills Box
+        self.dots_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.dots_box.set_valign(Gtk.Align.END)
+        self.dots_box.set_halign(Gtk.Align.CENTER)
+        self.dots_box.set_margin_bottom(12)
+
+        self.dots: List[Gtk.Button] = []
+        for i in range(len(self.slides)):
+            dot = Gtk.Button()
+            dot.add_css_class("mac-hero-dot-active" if i == 0 else "mac-hero-dot")
+            dot.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+            dot.connect("clicked", lambda b, target_idx=i: self._jump_to_slide(target_idx))
+            self.dots.append(dot)
+            self.dots_box.append(dot)
+        self.add_overlay(self.dots_box)
+
+        # Pause on hover controller
+        motion = Gtk.EventControllerMotion()
+        motion.connect("enter", self._on_enter)
+        motion.connect("leave", self._on_leave)
+        self.add_controller(motion)
+
+        # Auto-advance slideshow: GLib.timeout_add(5000, self._auto_advance)
+        self._timer_id = GLib.timeout_add(5000, self._auto_advance)
+        self.connect("destroy", self._on_destroy)
+
+    def _open_detail(self, sid: str, ssrc: str):
+        now = time.time()
+        if now - self._last_open_time < 0.35:
+            return
+        self._last_open_time = now
+        self.aura_window._open_package_detail(sid, ssrc)
+
+    def _build_slide(self, idx: int, slide: Dict[str, Any]) -> Gtk.Widget:
+        slide_overlay = Gtk.Overlay()
+        slide_overlay.add_css_class("mac-hero-slide")
+        slide_overlay.add_css_class(f"mac-hero-slide-{idx}")
+        slide_overlay.set_hexpand(True)
+        slide_overlay.set_valign(Gtk.Align.FILL)
+        slide_overlay.set_size_request(-1, 195)
+        slide_overlay.set_overflow(Gtk.Overflow.HIDDEN)
+
+        icon_target = resolve_icon_name(slide.get("icon", slide["id"]), slide.get("sub", ""))
+
+        # 1. Subtle, Semi-Transparent Watermarked Backdrop Graphic (160px)
+        watermark_layer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        watermark_layer.set_hexpand(True)
+        watermark_layer.set_vexpand(True)
+        watermark_layer.set_can_target(False)
+
+        watermark_img = create_scaled_image(icon_target, size=160)
+        watermark_img.add_css_class("mac-hero-watermark")
+        watermark_img.set_opacity(0.12)
+        watermark_img.set_halign(Gtk.Align.END)
+        watermark_img.set_valign(Gtk.Align.CENTER)
+        watermark_img.set_hexpand(True)
+        watermark_img.set_margin_end(120)
+        watermark_img.set_can_target(False)
+        watermark_layer.append(watermark_img)
+
+        slide_overlay.set_child(watermark_layer)
+
+        # 2. Foreground Content Container
+        content_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+        content_box.set_hexpand(True)
+        content_box.set_vexpand(True)
+        content_box.set_valign(Gtk.Align.FILL)
+
+        # Left Column: Tag chip, Title, Subtitle, Action button (generous 64px margin start)
+        left_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        left_col.set_hexpand(True)
+        left_col.set_valign(Gtk.Align.CENTER)
+        left_col.set_halign(Gtk.Align.START)
+        left_col.set_margin_start(64)
+
+        tag_lbl = Gtk.Label(label=slide.get("tag", "FEATURED"))
+        tag_lbl.add_css_class("mac-hero-tag")
+        tag_lbl.set_halign(Gtk.Align.START)
+        left_col.append(tag_lbl)
+
+        title_lbl = Gtk.Label(label=slide.get("title", slide["id"]))
+        title_lbl.add_css_class("mac-hero-title")
+        title_lbl.set_halign(Gtk.Align.START)
+        title_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        left_col.append(title_lbl)
+
+        sub_lbl = Gtk.Label(label=slide.get("sub", ""))
+        sub_lbl.add_css_class("mac-hero-sub")
+        sub_lbl.set_halign(Gtk.Align.START)
+        sub_lbl.set_wrap(True)
+        sub_lbl.set_wrap_mode(Pango.WrapMode.WORD)
+        sub_lbl.set_lines(2)
+        sub_lbl.set_max_width_chars(52)
+        sub_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        left_col.append(sub_lbl)
+
+        # Dynamic Action Button (OPEN if installed, GET otherwise)
+        is_installed = False
+        if hasattr(self.aura_window, "pm") and self.aura_window.pm:
+            try:
+                is_installed = self.aura_window.pm.is_installed(slide["id"])
+            except Exception:
+                pass
+
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        btn_box.set_margin_top(8)
+
+        action_btn = Gtk.Button(label="OPEN" if is_installed else "GET")
+        action_btn.add_css_class("mac-btn-open" if is_installed else "mac-btn-get")
+        action_btn.set_size_request(88, 32)
+        action_btn.set_valign(Gtk.Align.CENTER)
+        action_btn.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+        action_btn.connect(
+            "clicked",
+            lambda b, sid=slide["id"], ssrc=slide.get("source", "pacman"): self._open_detail(sid, ssrc)
+        )
+        btn_box.append(action_btn)
+        left_col.append(btn_box)
+
+        content_box.append(left_col)
+
+        # Right Column: Dead-Centered Squircle Icon Container (generous 64px margin end)
+        right_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        right_col.set_valign(Gtk.Align.CENTER)
+        right_col.set_halign(Gtk.Align.END)
+        right_col.set_margin_end(64)
+
+        icon_box = Gtk.Box()
+        icon_box.add_css_class("mac-hero-squircle")
+        icon_box.set_size_request(88, 88)
+        icon_box.set_valign(Gtk.Align.CENTER)
+        icon_box.set_halign(Gtk.Align.CENTER)
+        icon_box.set_hexpand(False)
+        icon_box.set_vexpand(False)
+
+        icon_img = create_scaled_image(icon_target, size=56)
+        icon_img.set_halign(Gtk.Align.CENTER)
+        icon_img.set_valign(Gtk.Align.CENTER)
+        icon_img.set_hexpand(True)
+        icon_img.set_vexpand(True)
+        icon_box.append(icon_img)
+
+        right_col.append(icon_box)
+        content_box.append(right_col)
+
+        slide_overlay.add_overlay(content_box)
+
+        # Clicking anywhere on the slide opens package detail
+        gesture = Gtk.GestureClick()
+        gesture.connect(
+            "released",
+            lambda g, n, x, y, sid=slide["id"], ssrc=slide.get("source", "pacman"): self._open_detail(sid, ssrc)
+        )
+        slide_overlay.add_controller(gesture)
+        slide_overlay.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+
+        return slide_overlay
+
+    def _jump_to_slide(self, index: int):
+        if not self.slides or index < 0 or index >= len(self.slides) or index == self.current_idx:
+            return
+        self.current_idx = index
+        self.stack.set_visible_child_name(f"slide_{index}")
+        self._update_dots()
+
+    def _next_slide(self):
+        if not self.slides:
+            return
+        new_idx = (self.current_idx + 1) % len(self.slides)
+        self.current_idx = new_idx
+        self.stack.set_visible_child_name(f"slide_{new_idx}")
+        self._update_dots()
+
+    def _prev_slide(self):
+        if not self.slides:
+            return
+        new_idx = (self.current_idx - 1) % len(self.slides)
+        self.current_idx = new_idx
+        self.stack.set_visible_child_name(f"slide_{new_idx}")
+        self._update_dots()
+
+    def _update_dots(self):
+        for i, dot in enumerate(self.dots):
+            if i == self.current_idx:
+                dot.remove_css_class("mac-hero-dot")
+                dot.add_css_class("mac-hero-dot-active")
+            else:
+                dot.remove_css_class("mac-hero-dot-active")
+                dot.add_css_class("mac-hero-dot")
+
+    def _on_enter(self, controller, x, y):
+        self._is_hovered = True
+
+    def _on_leave(self, controller):
+        self._is_hovered = False
+
+    def _auto_advance(self) -> bool:
+        if not self._is_hovered:
+            self._next_slide()
+        return True
+
+    def _on_destroy(self, *args):
+        if self._timer_id:
+            GLib.source_remove(self._timer_id)
+            self._timer_id = None
+
+
 class AuraWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application, package_manager: PackageManager):
         super().__init__(application=app, title="App Store")
@@ -1118,17 +1637,24 @@ class AuraWindow(Adw.ApplicationWindow):
 
         self.main_stack.set_visible_child_name("discover")
 
-        # Responsive Breakpoint for multi-column grids:
-        # Wide / Fullscreen (>= 1350px): 3 columns
-        # Standard Window / Tiled (< 1350px): 2 columns
-        bp_wide = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 1350px'))
+        # Responsive Breakpoints for multi-column grids:
+        # Fullscreen / Ultra-wide (>= 1600px): 4 columns
+        # Wide (1200px - 1599px): 3 columns
+        # Standard Window (780px - 1199px): 2 columns
+        # Compact (< 780px): 1 column
+        bp_ultrawide = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 1600px'))
+        bp_ultrawide.connect('apply', lambda b: self._set_grid_cols(4))
+        bp_ultrawide.connect('unapply', lambda b: self._sync_responsive_cols())
+        self.add_breakpoint(bp_ultrawide)
+
+        bp_wide = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 1200px and max-width: 1599px'))
         bp_wide.connect('apply', lambda b: self._set_grid_cols(3))
-        bp_wide.connect('unapply', lambda b: self._set_grid_cols(2))
+        bp_wide.connect('unapply', lambda b: self._sync_responsive_cols())
         self.add_breakpoint(bp_wide)
 
-        bp_compact = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('max-width: 820px'))
+        bp_compact = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('max-width: 779px'))
         bp_compact.connect('apply', lambda b: self._set_grid_cols(1))
-        bp_compact.connect('unapply', lambda b: self._set_grid_cols(2))
+        bp_compact.connect('unapply', lambda b: self._sync_responsive_cols())
         self.add_breakpoint(bp_compact)
 
         self.connect("notify::fullscreened", lambda *a: self._sync_responsive_cols())
@@ -1138,22 +1664,36 @@ class AuraWindow(Adw.ApplicationWindow):
 
     def _sync_responsive_cols(self):
         w = self.get_width()
-        if self.is_fullscreen() or w >= 1350:
+        if self.is_fullscreen() or w >= 1600:
+            self._set_grid_cols(4)
+        elif 1200 <= w < 1600:
             self._set_grid_cols(3)
-        elif w <= 820:
-            self._set_grid_cols(1)
-        else:
+        elif 780 <= w < 1200:
             self._set_grid_cols(2)
+        else:
+            self._set_grid_cols(1)
 
     def _set_grid_cols(self, cols: int):
         self._active_cols = cols
         for flow in getattr(self, "_registered_grids", []):
-            flow.set_min_children_per_line(cols)
-            flow.set_max_children_per_line(cols)
+            min_c = getattr(flow, "_aura_min_cols", 1)
+            max_c = getattr(flow, "_aura_max_cols", 4)
+            target = max(min_c, min(cols, max_c))
+            flow.set_min_children_per_line(target)
+            flow.set_max_children_per_line(target)
 
     def _get_target_cols(self) -> int:
         if self.is_fullscreen():
+            return 4
+        w = self.get_width() if hasattr(self, "get_width") else 0
+        if w >= 1600:
+            return 4
+        elif 1200 <= w < 1600:
             return 3
+        elif 780 <= w < 1200:
+            return 2
+        elif 0 < w < 780:
+            return 1
         return getattr(self, "_active_cols", 2)
 
     def _sync_all_grid_columns(self):
@@ -1453,7 +1993,7 @@ class AuraWindow(Adw.ApplicationWindow):
         box.append(header_row)
 
         # Symmetrical Grid
-        self.cat_flow_box = self._create_symmetric_grid(min_columns=2, max_columns=3)
+        self.cat_flow_box = self._create_symmetric_grid(min_columns=1, max_columns=4)
         box.append(self.cat_flow_box)
 
         scrolled.set_child(box)
@@ -1655,7 +2195,13 @@ class AuraWindow(Adw.ApplicationWindow):
         header_row.append(header_sub)
         box.append(header_row)
 
-        # 2. Curated Categories (2-Column Symmetrical Grids)
+        # Mac Hero Carousel (Curated 5-Slide Animated Showcase)
+        self.hero_carousel = MacHeroCarousel(self)
+        self.hero_carousel.set_margin_top(4)
+        self.hero_carousel.set_margin_bottom(8)
+        box.append(self.hero_carousel)
+
+        # 2. Curated Categories (Multi-Column Symmetrical Grids)
         for cat in CURATED_CATEGORIES:
             sec_header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             sec_header_box.set_margin_top(16)
@@ -1693,8 +2239,8 @@ class AuraWindow(Adw.ApplicationWindow):
 
             box.append(sec_header_box)
 
-            # Symmetrical Grid (2 columns windowed, 3 columns fullscreen)
-            flow = self._create_symmetric_grid(min_columns=2, max_columns=3)
+            # Symmetrical Grid (up to 4 columns fullscreen)
+            flow = self._create_symmetric_grid(min_columns=1, max_columns=4)
             for app_meta in cat["apps"]:
                 card = self._create_mac_app_row(
                     app_meta["name"],
@@ -1768,7 +2314,7 @@ class AuraWindow(Adw.ApplicationWindow):
         scrolled_box.set_margin_top(8)
         scrolled_box.set_margin_bottom(28)
 
-        self.browse_flow_box = self._create_symmetric_grid(min_columns=2, max_columns=3)
+        self.browse_flow_box = self._create_symmetric_grid(min_columns=1, max_columns=4)
         scrolled_box.append(self.browse_flow_box)
         scrolled.set_child(scrolled_box)
 
@@ -1836,7 +2382,7 @@ class AuraWindow(Adw.ApplicationWindow):
         self.updates_main_box.append(updates_header_row)
 
         # Symmetrical Grid for Updates (Synchronized with Discover & Installed)
-        self.updates_flow_box = self._create_symmetric_grid()
+        self.updates_flow_box = self._create_symmetric_grid(min_columns=1, max_columns=4)
         self.updates_main_box.append(self.updates_flow_box)
 
         scrolled.set_child(self.updates_main_box)
@@ -1932,7 +2478,7 @@ class AuraWindow(Adw.ApplicationWindow):
 
         box.append(header_box)
 
-        self.installed_flow_box = self._create_symmetric_grid(min_columns=2, max_columns=3)
+        self.installed_flow_box = self._create_symmetric_grid(min_columns=1, max_columns=4)
         box.append(self.installed_flow_box)
 
         scrolled.set_child(box)
@@ -2008,7 +2554,7 @@ class AuraWindow(Adw.ApplicationWindow):
         page_subtitle.set_wrap_mode(Pango.WrapMode.WORD)
         page_subtitle.set_lines(2)
         page_subtitle.set_ellipsize(Pango.EllipsizeMode.END)
-        page_subtitle.set_max_width_chars(45)
+        page_subtitle.set_max_width_chars(75)
         title_box.append(page_subtitle)
         box.append(title_box)
 
@@ -2059,7 +2605,7 @@ class AuraWindow(Adw.ApplicationWindow):
         self.container_desc_lbl.set_wrap_mode(Pango.WrapMode.WORD)
         self.container_desc_lbl.set_lines(2)
         self.container_desc_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-        self.container_desc_lbl.set_max_width_chars(45)
+        self.container_desc_lbl.set_max_width_chars(75)
         c_info_box.append(self.container_desc_lbl)
         status_card.append(c_info_box)
 
@@ -2087,7 +2633,7 @@ class AuraWindow(Adw.ApplicationWindow):
         box.append(search_filter_box)
 
         # 4. Applications Flow Grid
-        self.containers_flow_box = self._create_symmetric_grid(min_columns=2, max_columns=3)
+        self.containers_flow_box = self._create_symmetric_grid(min_columns=1, max_columns=4)
         box.append(self.containers_flow_box)
 
         scrolled.set_child(box)
@@ -2190,7 +2736,7 @@ class AuraWindow(Adw.ApplicationWindow):
         name_lbl.set_halign(Gtk.Align.START)
         name_lbl.set_hexpand(True)
         name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-        name_lbl.set_max_width_chars(20)
+        name_lbl.set_max_width_chars(38)
         title_row.append(name_lbl)
 
         tag_lbl = Gtk.Label(label="OCI")
@@ -2207,7 +2753,7 @@ class AuraWindow(Adw.ApplicationWindow):
         desc_lbl.set_wrap_mode(Pango.WrapMode.WORD)
         desc_lbl.set_lines(2)
         desc_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-        desc_lbl.set_max_width_chars(28)
+        desc_lbl.set_max_width_chars(48)
         info_col.append(desc_lbl)
 
         # Shortcut note
@@ -2218,7 +2764,7 @@ class AuraWindow(Adw.ApplicationWindow):
             shortcut_lbl.set_markup("<span size='small' color='#86868b'>Auto-creates desktop shortcut</span>")
         shortcut_lbl.set_halign(Gtk.Align.START)
         shortcut_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-        shortcut_lbl.set_max_width_chars(32)
+        shortcut_lbl.set_max_width_chars(48)
         info_col.append(shortcut_lbl)
 
         card.append(info_col)
@@ -2398,7 +2944,7 @@ class AuraWindow(Adw.ApplicationWindow):
         self.detail_title.add_css_class("mac-detail-title")
         self.detail_title.set_halign(Gtk.Align.START)
         self.detail_title.set_ellipsize(Pango.EllipsizeMode.END)
-        self.detail_title.set_max_width_chars(30)
+        self.detail_title.set_max_width_chars(65)
         vbox_title.append(self.detail_title)
 
         self.detail_subtitle = Gtk.Label(label="Subtitle / Category Description")
@@ -2408,14 +2954,14 @@ class AuraWindow(Adw.ApplicationWindow):
         self.detail_subtitle.set_wrap_mode(Pango.WrapMode.WORD)
         self.detail_subtitle.set_lines(2)
         self.detail_subtitle.set_ellipsize(Pango.EllipsizeMode.END)
-        self.detail_subtitle.set_max_width_chars(36)
+        self.detail_subtitle.set_max_width_chars(75)
         vbox_title.append(self.detail_subtitle)
 
         self.detail_meta = Gtk.Label(label="Official Repository • Free & Open Source")
         self.detail_meta.add_css_class("mac-detail-meta")
         self.detail_meta.set_halign(Gtk.Align.START)
         self.detail_meta.set_ellipsize(Pango.EllipsizeMode.END)
-        self.detail_meta.set_max_width_chars(40)
+        self.detail_meta.set_max_width_chars(75)
         vbox_title.append(self.detail_meta)
 
         self.detail_hero_box.append(vbox_title)
@@ -2485,7 +3031,7 @@ class AuraWindow(Adw.ApplicationWindow):
             val.set_wrap_mode(Pango.WrapMode.WORD)
             val.set_lines(2)
             val.set_ellipsize(Pango.EllipsizeMode.END)
-            val.set_max_width_chars(16)
+            val.set_max_width_chars(24)
             svbox.append(val)
             return svbox, val
 
@@ -2582,7 +3128,7 @@ class AuraWindow(Adw.ApplicationWindow):
             val_lbl.set_halign(Gtk.Align.END)
             val_lbl.set_selectable(True)
             val_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-            val_lbl.set_max_width_chars(36)
+            val_lbl.set_max_width_chars(60)
             row.append(val_lbl)
             return row, val_lbl
 
@@ -2612,13 +3158,18 @@ class AuraWindow(Adw.ApplicationWindow):
     # =========================================================================
     # Symmetrical Multi-Column Grid Builder
     # =========================================================================
-    def _create_symmetric_grid(self, min_columns: Optional[int] = None, max_columns: Optional[int] = None, columns: Optional[int] = None) -> Gtk.FlowBox:
+    def _create_symmetric_grid(self, min_columns: Optional[int] = None, max_columns: Optional[int] = 4, columns: Optional[int] = None) -> Gtk.FlowBox:
         flow = Gtk.FlowBox()
         flow.set_selection_mode(Gtk.SelectionMode.NONE)
         flow.set_homogeneous(True)
+        min_c = min_columns if min_columns is not None else 1
+        max_c = max_columns if max_columns is not None else 4
+        flow._aura_min_cols = min_c
+        flow._aura_max_cols = max_c
         cols = self._get_target_cols()
-        flow.set_min_children_per_line(cols)
-        flow.set_max_children_per_line(cols)
+        target = max(min_c, min(cols, max_c))
+        flow.set_min_children_per_line(target)
+        flow.set_max_children_per_line(target)
         flow.set_column_spacing(16)
         flow.set_row_spacing(12)
         flow.set_hexpand(True)
@@ -2679,7 +3230,7 @@ class AuraWindow(Adw.ApplicationWindow):
         title_lbl.set_halign(Gtk.Align.START)
         title_lbl.set_hexpand(True)
         title_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-        title_lbl.set_max_width_chars(20)
+        title_lbl.set_max_width_chars(38)
         vbox.append(title_lbl)
 
         if update_info:
@@ -2694,7 +3245,7 @@ class AuraWindow(Adw.ApplicationWindow):
         desc_lbl.set_wrap_mode(Pango.WrapMode.WORD)
         desc_lbl.set_lines(2)
         desc_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-        desc_lbl.set_max_width_chars(28)
+        desc_lbl.set_max_width_chars(48)
         desc_lbl.add_css_class("mac-app-desc")
         vbox.append(desc_lbl)
 

@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- macOS Squircle Clip Path -->
+    <clipPath id="squircleClip">
+      <rect x="0" y="0" width="512" height="512" rx="115" ry="115"/>
+    </clipPath>
+
+    <!-- Rich Docker Royal Blue Gradient -->
+    <linearGradient id="dockerBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B2F6D"/>
+      <stop offset="50%" stop-color="#1D63ED"/>
+      <stop offset="100%" stop-color="#0EA5E9"/>
+    </linearGradient>
+
+    <!-- Ambient Subtle Radial Glow -->
+    <radialGradient id="dockerGlow" cx="75%" cy="25%" r="65%">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.35"/>
+      <stop offset="60%" stop-color="#1D63ED" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#0B2F6D" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Specular Highlight for Glass Rim Border -->
+    <linearGradient id="glassBorder" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.45"/>
+      <stop offset="35%" stop-color="#ffffff" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.04"/>
+    </linearGradient>
+
+    <!-- Emblem Subtle Soft Depth Shadow -->
+    <filter id="dockerShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#04122e" flood-opacity="0.35"/>
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#061e4a" flood-opacity="0.25"/>
+    </filter>
+
+    <!-- Whale Eye Cutout Mask -->
+    <mask id="whaleEyeMask">
+      <rect x="-50" y="-50" width="200" height="200" fill="#ffffff"/>
+      <circle cx="17.6" cy="35.8" r="0.95" fill="#000000"/>
+    </mask>
+  </defs>
+
+  <!-- Base Squircle -->
+  <rect width="512" height="512" rx="115" ry="115" fill="url(#dockerBg)"/>
+
+  <!-- Clipped Interior with Ambient Lighting & Emblem -->
+  <g clip-path="url(#squircleClip)">
+    <!-- Ambient Lighting Sheen -->
+    <circle cx="370" cy="140" r="260" fill="url(#dockerGlow)"/>
+
+    <!-- Subtle Diagonal Glass Sheen Line -->
+    <path d="M 0,0 L 512,512" stroke="url(#glassBorder)" stroke-width="1.5" opacity="0.10"/>
+
+    <!-- Docker Whale & Containers Emblem Mathematically & Optically Centered at (256, 256) -->
+    <g transform="translate(-38.120, -27.800) scale(8.60000)" filter="url(#dockerShadow)">
+      <!-- 1. Whale Body with curved belly, tail fluke & eye cutout -->
+      <path d="m 27.263667,47.985218 c -2.338355,-0.150159 -3.916608,-0.410305 -5.45703,-0.899495 -2.205951,-0.700551 -3.623475,-1.655824 -4.887879,-3.293928 -1.565239,-2.027768 -2.586749,-5.479776 -2.843355,-8.716585 -0.09006,-1.140091 -0.09908,-1.811118 -0.02902,-2.081962 0.111286,-0.424344 0.36519,-0.717775 0.78042,-0.901781 0.186947,-0.0828 0.212769,-0.08301 14.138419,-0.0839 9.152563,-5.89e-4 14.10019,-0.01529 14.384717,-0.04252 0.47888,-0.04607 1.228775,-0.174476 1.585358,-0.271577 0.497292,-0.135408 1.088763,-0.366236 1.088763,-0.424891 0,-0.01508 -0.09307,-0.200404 -0.207064,-0.411789 -0.44025,-0.817048 -0.638707,-1.138949 -0.636305,-2.134742 0,-1.098696 0.258204,-2.104969 0.810844,-3.191276 0.227679,-0.447584 0.782118,-1.288752 0.849474,-1.288772 0.06605,-1.9e-5 0.745192,0.407056 1.058039,0.63388 1.254596,0.909818 2.23207,2.597093 2.482069,3.976405 0.05204,0.289393 0.05705,0.297716 0.162231,0.27673 0.61859,-0.123774 2.090259,-0.1606 2.746379,-0.06874 1.039225,0.145506 1.813539,0.429037 2.439336,0.893197 0.167035,0.123858 0.303642,0.238428 0.303642,0.254601 0,0.09856 -0.235086,0.674801 -0.400017,0.980237 -0.263109,0.487555 -0.547033,0.854534 -1.000795,1.29331 -1.158118,1.120068 -2.812431,1.734833 -4.677011,1.738129 l -0.40342,7.13e-4 -0.09607,0.235253 c -1.818279,4.45254 -4.115265,7.378734 -7.242346,9.638416 -3.145097,2.272775 -7.166889,3.592016 -11.809373,3.873741 -0.52882,0.03207 -2.722459,0.04418 -3.14069,0.01743 z" 
+            fill="#ffffff" mask="url(#whaleEyeMask)"/>
+
+      <!-- 2. Shipping Containers in 3 Rows: 1 on top, 3 in middle, 5 on bottom (Full Docker Set) -->
+      <!-- Top Row (1 crate) -->
+      <rect x="33" y="17" width="4" height="4" rx="0.8" fill="#ffffff"/>
+
+      <!-- Middle Row (3 crates) -->
+      <rect x="23" y="22" width="4" height="4" rx="0.8" fill="#ffffff"/>
+      <rect x="28" y="22" width="4" height="4" rx="0.8" fill="#ffffff"/>
+      <rect x="33" y="22" width="4" height="4" rx="0.8" fill="#ffffff"/>
+
+      <!-- Bottom Row (5 crates) -->
+      <rect x="18" y="27" width="4" height="4" rx="0.8" fill="#ffffff"/>
+      <rect x="23" y="27" width="4" height="4" rx="0.8" fill="#ffffff"/>
+      <rect x="28" y="27" width="4" height="4" rx="0.8" fill="#ffffff"/>
+      <rect x="33" y="27" width="4" height="4" rx="0.8" fill="#ffffff"/>
+      <rect x="38" y="27" width="4" height="4" rx="0.8" fill="#ffffff"/>
+    </g>
+  </g>
+
+  <!-- Specular Glass Border Highlight -->
+  <rect x="1.5" y="1.5" width="509" height="509" rx="113.5" ry="113.5" 
+        fill="none" stroke="url(#glassBorder)" stroke-width="3"/>
+</svg>

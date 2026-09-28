@@ -46,6 +46,7 @@ pkg_cache.json
 
 # Temporary screenshot captures / debug scripts
 capture_all.py
-capture_fullscreen.py
-test_*.py
+/test_*.py
+!tests/
+!tests/**
 scratch/

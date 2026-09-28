@@ -1016,6 +1016,8 @@ APP_DISPLAY_NAMES: Dict[str, str] = {
     "signal": "Signal",
     "obs-studio": "OBS Studio",
     "vlc": "VLC Media Player",
+    "vlc-cli": "VLC (CLI)",
+    "vlc-gui-qt": "VLC Qt GUI",
     "lutris": "Lutris",
     "btop": "Btop",
     "fastfetch": "Fastfetch",
@@ -1392,13 +1394,30 @@ def get_app_display_name(pkg_name: str, fallback_title: str = "") -> str:
     dt_names = get_desktop_names_map()
     if clean_pkg in dt_names:
         return dt_names[clean_pkg]
-    # Clean up prefixes/suffixes
-    clean = re.sub(r'-(bin|git|hg|svn|pure|gtk-app|qt-app|gui|cli|daemon|desktop|launcher)$', '', clean_pkg)
-    if clean in APP_DISPLAY_NAMES:
-        return APP_DISPLAY_NAMES[clean]
-    if clean in dt_names:
-        return dt_names[clean]
-    return clean.replace("-", " ").title()
+
+    # Check for package suffixes (cli, git, bin, etc.) to avoid collision with main GUI app
+    m = re.search(r'-(bin|git|hg|svn|pure|gtk-app|qt-app|gui|cli|daemon|desktop|launcher)$', clean_pkg)
+    if m:
+        suffix = m.group(1)
+        base = clean_pkg[:m.start()]
+        base_title = APP_DISPLAY_NAMES.get(base) or dt_names.get(base) or base.replace("-", " ").title()
+        suffix_tags = {
+            "cli": "CLI",
+            "git": "Git",
+            "bin": "Bin",
+            "daemon": "Daemon",
+            "launcher": "Launcher",
+            "pure": "Pure",
+            "gui": "GUI",
+            "gtk-app": "GTK",
+            "qt-app": "Qt",
+        }
+        tag = suffix_tags.get(suffix, suffix.capitalize())
+        if base == "vlc":
+            return f"VLC ({tag})"
+        return f"{base_title} ({tag})"
+
+    return clean_pkg.replace("-", " ").title()
 
 
 def resolve_icon_name(pkg_name: str, desc: str = "") -> str:
@@ -1581,75 +1600,263 @@ def resolve_icon_name(pkg_name: str, desc: str = "") -> str:
 
 
 
-def fuzzy_score(query: str, target: str, desc: str = "") -> int:
-    """Fuzzy matching score with multi-word, prefix, and boundary bonuses."""
+_CURATED_DESKTOP_SET: Optional[Set[str]] = None
+
+
+def get_desktop_and_curated_set() -> Set[str]:
+    """Return cached set of known desktop and curated application names for instant relevance boosting."""
+    global _CURATED_DESKTOP_SET
+    if _CURATED_DESKTOP_SET is not None:
+        return _CURATED_DESKTOP_SET
+
+    s = set()
+    s.update(k.lower() for k in APP_DISPLAY_NAMES.keys())
+    for cat in CURATED_CATEGORIES:
+        for app in cat.get("apps", []):
+            name = app.get("name", "").lower()
+            if name:
+                s.add(name)
+    s.update(k.lower() for k in FEATURED_APP_PRESETS.keys())
+    s.update(k.lower() for k in _DESKTOP_OVERRIDES.keys())
+    s.update(v.lower() for v in _DESKTOP_OVERRIDES.values())
+    try:
+        entries = get_desktop_entries_map()
+        s.update(k.lower() for k in entries.keys())
+    except Exception:
+        pass
+
+    _CURATED_DESKTOP_SET = s
+    return _CURATED_DESKTOP_SET
+
+
+def is_desktop_app(pkg_name: str) -> bool:
+    """Check if a package represents a user-facing desktop or curated application."""
+    if not pkg_name:
+        return False
+    name = pkg_name.lower().strip()
+    desktop_set = get_desktop_and_curated_set()
+    if name in desktop_set:
+        return True
+    idx = name.rfind('-')
+    if idx != -1:
+        prefix = name[:idx]
+        suffix = name[idx+1:]
+        if suffix in ('bin', 'git', 'hg', 'svn', 'pure', 'desktop', 'launcher', 'gui', 'gtk-app', 'qt-app'):
+            if prefix in desktop_set:
+                return True
+    return False
+
+
+def is_damerau_levenshtein_one(s1: str, s2: str) -> bool:
+    """Check if s1 and s2 have edit distance <= 1 (insertion, deletion, substitution, adjacent swap)."""
+    len1, len2 = len(s1), len(s2)
+    if abs(len1 - len2) > 1:
+        return False
+    if len1 == len2:
+        diffs = [i for i in range(len1) if s1[i] != s2[i]]
+        if len(diffs) == 1:
+            return True
+        if len(diffs) == 2 and diffs[1] == diffs[0] + 1:
+            return s1[diffs[0]] == s2[diffs[1]] and s1[diffs[1]] == s2[diffs[0]]
+        return False
+    short, long = (s1, s2) if len1 < len2 else (s2, s1)
+    i = j = 0
+    diff = 0
+    while i < len(short) and j < len(long):
+        if short[i] != long[j]:
+            diff += 1
+            if diff > 1:
+                return False
+            j += 1
+        else:
+            i += 1
+            j += 1
+    return True
+
+
+def fuzzy_score(
+    query: str,
+    target: str,
+    desc: str = "",
+    is_desktop: Optional[bool] = None,
+    is_installed: bool = False
+) -> int:
+    """
+    Tiered Multi-Level Scoring Engine for Aura Store:
+      Tier 1: Exact Name Match: 10,000 points
+      Tier 2: Exact Normalized Match: 9,000 points
+      Tier 3: Prefix Match on Name: 7,000 - min(500, len(name)*10)
+      Tier 4: Word Boundary / Segment Match: 5,000 points
+      Tier 5: High-Precision Subsequence Match on Name:
+              Base 3,000 + streak multiplier (+50*streak) + boundary bonus (+150)
+              Only for queries >= 2 characters
+      Tier 6: Description Exact Word / Phrase Match:
+              1,500 points (Only for queries >= 3 characters)
+      Relevance Boosts (applied only if base score > 0):
+        +800 for Desktop / Curated Applications
+        +200 for Locally Installed Packages
+    """
     q = query.lower().strip()
-    t = target.lower()
-    d = desc.lower() if desc else ""
+    t = target.lower().strip()
 
     if not q or not t:
         return 0
 
+    base_score = 0
+    q_len = len(q)
+    t_len = len(t)
+
+    # 1. Exact Name Match (e.g. vlc == vlc, git == git): 10,000 points
     if q == t:
-        return 1000
+        base_score = 10000
 
-    q_norm = q.replace("-", " ").replace("_", " ")
-    t_norm = t.replace("-", " ").replace("_", " ")
+    # Fast normalization using C-level string operations
+    q_norm = q.replace("-", " ").replace("_", " ").replace(".", " ")
+    t_norm = t.replace("-", " ").replace("_", " ").replace(".", " ")
 
-    if q_norm == t_norm:
-        return 980
+    # 2. Exact Normalized Match (code-oss for code oss): 9,000 points
+    if not base_score:
+        if q_norm == t_norm:
+            base_score = 9000
+        else:
+            q_condensed = q_norm.replace(" ", "")
+            t_condensed = t_norm.replace(" ", "")
+            if q_condensed and q_condensed == t_condensed:
+                base_score = 9000
 
-    if t_norm.startswith(q_norm) or t.startswith(q):
-        return 850 - min(100, len(t))
+    # 3. Prefix Match on Name (fire -> firefox, neov -> neovim): 7,000 - min(500, len(name)*10)
+    if not base_score:
+        if t.startswith(q) or t_norm.startswith(q_norm):
+            base_score = 7000 - min(500, t_len * 10)
+        else:
+            q_condensed = q_norm.replace(" ", "")
+            t_condensed = t_norm.replace(" ", "")
+            if q_condensed and t_condensed.startswith(q_condensed):
+                base_score = 7000 - min(500, t_len * 10)
 
-    idx = t_norm.find(q_norm)
-    if idx != -1:
-        is_boundary = (idx == 0 or t_norm[idx - 1] == " ")
-        score = 720 - (idx * 5) - min(100, len(t))
-        if is_boundary:
-            score += 80
-        return score
+    # For 1-char queries: ONLY match packages starting with that letter. Instant sub-1ms return.
+    if q_len < 2:
+        if base_score > 0:
+            if is_desktop is None:
+                is_desktop = is_desktop_app(target)
+            if is_desktop:
+                base_score += 800
+            if is_installed:
+                base_score += 200
+            return base_score
+        return 0
 
-    words = q_norm.split()
-    if len(words) > 1:
-        all_in_name = all(w in t_norm for w in words)
-        if all_in_name:
-            score = 660 - min(100, len(t))
-            last_pos = -1
-            ordered = True
-            for w in words:
-                pos = t_norm.find(w)
-                if pos <= last_pos:
-                    ordered = False
-                last_pos = pos
-            if ordered:
-                score += 70
-            return score
+    # 4. Word Boundary / Segment Match (studio -> obs-studio, code -> visual-studio-code): 5,000 points
+    if not base_score:
+        t_segments = t_norm.split()
+        q_words = q_norm.split()
 
-        all_in_record = all((w in t_norm or w in d) for w in words)
-        if all_in_record:
-            return 320 - min(100, len(t))
-
-    qi = 0
-    score = 400
-    last_idx = -2
-    consecutive = 0
-    for i, ch in enumerate(t):
-        if qi < len(q) and ch == q[qi]:
-            if last_idx == i - 1:
-                consecutive += 1
-                score += 25 * consecutive
+        if q in t_segments:
+            base_score = 5000
+        elif len(q_words) > 1 and all(w in t_segments for w in q_words):
+            base_score = 5000
+        else:
+            idx = t.find(q)
+            if idx != -1:
+                is_boundary_start = (idx == 0 or t[idx - 1] in "-_. ")
+                end_pos = idx + q_len
+                is_boundary_end = (end_pos == t_len or t[end_pos] in "-_. ")
+                if is_boundary_start and is_boundary_end:
+                    base_score = 5000
+                elif is_boundary_start:
+                    base_score = 4800
             else:
-                consecutive = 0
-            if i == 0 or t[i - 1] in "-_.":
-                score += 35
-            last_idx = i
-            qi += 1
-    if qi == len(q):
-        return score - min(100, len(t))
+                idx = t_norm.find(q_norm)
+                if idx != -1:
+                    is_boundary_start = (idx == 0 or t_norm[idx - 1] == ' ')
+                    end_pos = idx + len(q_norm)
+                    is_boundary_end = (end_pos == len(t_norm) or t_norm[end_pos] == ' ')
+                    if is_boundary_start and is_boundary_end:
+                        base_score = 5000
+                    elif is_boundary_start:
+                        base_score = 4800
+                elif any(s.startswith(q) for s in t_segments):
+                    base_score = 4800
 
-    if d and q in d:
-        return 180 - min(80, d.find(q))
+    # 5. High-Precision Subsequence Match on Name (only for queries >= 2 characters)
+    #    Bonus for matches following -, _, ., or word start (+150)
+    #    Consecutive character match streak multiplier (+50 * streak)
+    #    Score base: 3,000
+    if not base_score and q_len >= 2:
+        if q[0] in t:
+            qi = 0
+            last_idx = -2
+            streak = 0
+            subseq_bonus = 0
+
+            for i, ch in enumerate(t):
+                if qi < q_len and ch == q[qi]:
+                    if i == 0 or t[i - 1] in "-_. ":
+                        subseq_bonus += 150
+
+                    if last_idx == i - 1:
+                        streak += 1
+                        subseq_bonus += 50 * streak
+                    else:
+                        streak = 0
+
+                    last_idx = i
+                    qi += 1
+
+            if qi == q_len:
+                subseq_calc = 3000 + subseq_bonus
+                base_score = max(3000, min(4800, subseq_calc))
+
+    # 5.5 Typo Tolerance / Single-Edit Distance (only for queries >= 4 characters)
+    # Allows 1 transposition, insertion, deletion, or substitution (e.g. firfox -> firefox, chorme -> chrome)
+    if not base_score and q_len >= 4:
+        q_norm = re.sub(r'[-_.\s]+', ' ', q).strip()
+        t_norm = re.sub(r'[-_.\s]+', ' ', t).strip()
+        if is_damerau_levenshtein_one(q, t) or is_damerau_levenshtein_one(q_norm, t_norm):
+            base_score = 2500 - min(300, t_len * 10)
+        else:
+            t_segments = [s for s in re.split(r'[-_.\s]+', t) if s]
+            for s in t_segments:
+                if len(s) >= 3 and is_damerau_levenshtein_one(q, s):
+                    base_score = 2200 - min(300, t_len * 10)
+                    break
+
+    # 6. Description Exact Word / Phrase Match (only for queries >= 3 characters)
+    #    Word match in description: 1,500 points
+    if not base_score and q_len >= 3 and desc:
+        d = desc.lower()
+        if q in d:
+            pos = 0
+            is_word_match = False
+            first_idx = -1
+            while True:
+                idx = d.find(q, pos)
+                if idx == -1:
+                    break
+                if first_idx == -1:
+                    first_idx = idx
+                before_ok = (idx == 0 or not d[idx - 1].isalnum())
+                after_ok = (idx + q_len == len(d) or not d[idx + q_len].isalnum())
+                if before_ok and after_ok:
+                    is_word_match = True
+                    first_idx = idx
+                    break
+                pos = idx + 1
+
+            if is_word_match:
+                base_score = 1500 - min(100, first_idx)
+            elif first_idx != -1:
+                base_score = 1200 - min(100, first_idx)
+
+    # Apply Relevance Boosts if package matched (base_score > 0)
+    if base_score > 0:
+        if is_desktop is None:
+            is_desktop = is_desktop_app(target)
+        if is_desktop:
+            base_score += 800
+        if is_installed:
+            base_score += 200
+        return base_score
 
     return 0
 
@@ -1915,6 +2122,8 @@ class PackageManager:
         self.is_checking_updates = False
         self.updates_checked = False
         self.container_mgr = ContainerManager()
+        self.snap_mgr = SnapManager()
+        self.cache_mgr = CacheManager()
         # Load installed packages synchronously so cards immediately reflect installed status
         self.refresh_installed()
         # Persistent rotating featured apps state
@@ -2276,7 +2485,7 @@ class PackageManager:
         return self.get_dynamic_featured_apps(count=count, refresh=True)
 
     def check_updates(self) -> List[Dict[str, str]]:
-        """Check for upgradable packages and return detailed list."""
+        """Check for upgradable packages across pacman, snap, and containers."""
         self.is_checking_updates = True
         updates: List[Dict[str, str]] = []
         try:
@@ -2295,9 +2504,25 @@ class PackageManager:
                         })
         except Exception as e:
             print(f"[Aura] Update check: {e}", file=sys.stderr)
-        finally:
-            self.is_checking_updates = False
-            self.updates_checked = True
+
+        # Merge Snap updates
+        try:
+            snap_updates = self.snap_mgr.check_snap_updates()
+            if snap_updates:
+                updates.extend(snap_updates)
+        except Exception as e:
+            print(f"[Aura] Snap update check: {e}", file=sys.stderr)
+
+        # Merge Container updates
+        try:
+            container_updates = self.container_mgr.check_container_updates()
+            if container_updates:
+                updates.extend(container_updates)
+        except Exception as e:
+            print(f"[Aura] Container update check: {e}", file=sys.stderr)
+
+        self.is_checking_updates = False
+        self.updates_checked = True
 
         with self._lock:
             self.upgradable_list = updates
@@ -2384,58 +2609,131 @@ class PackageManager:
             print(f"[Aura] Error saving cache: {e}", file=sys.stderr)
 
     def search_pacman(self, query: str, limit: int = 150) -> List[Dict[str, Any]]:
-        """Fuzzy search pacman repository packages."""
-        if not query.strip():
+        """High-performance tiered fuzzy search for pacman repository packages."""
+        clean_q = query.strip().lower()
+        if not clean_q:
             return []
 
-        results = []
+        q_len = len(clean_q)
+        q_norm = re.sub(r'[-_.\s]+', ' ', clean_q).strip()
+
         with self._lock:
             items = list(self.packages.values())
             installed_set = self.installed_set
             installed_vers = self.installed_versions
 
-        for pkg in items:
+        desktop_set = get_desktop_and_curated_set()
+        candidates: List[Tuple[int, Dict[str, Any]]] = []
+
+        if q_len == 1:
+            # Fast-path for 1-char: ONLY match packages starting with that letter. Instant sub-1ms return.
+            for pkg in items:
+                name = pkg.get("name", "")
+                if not name:
+                    continue
+                name_lower = name.lower()
+                if not name_lower.startswith(clean_q):
+                    continue
+                is_installed = (name in installed_set)
+                score = fuzzy_score(clean_q, name, is_installed=is_installed)
+                if score > 0:
+                    candidates.append((score, pkg))
+
+        elif q_len == 2:
+            # Fast-path for 2-char: ONLY match packages whose name starts with or contains query. Never scan 20,000 descriptions.
+            for pkg in items:
+                name = pkg.get("name", "")
+                if not name:
+                    continue
+                name_lower = name.lower()
+                if clean_q not in name_lower and q_norm not in name_lower.replace("-", " ").replace("_", " "):
+                    continue
+                is_installed = (name in installed_set)
+                score = fuzzy_score(clean_q, name, is_installed=is_installed)
+                if score > 0:
+                    candidates.append((score, pkg))
+
+        else:
+            # For >= 3 char queries: Scan names first; only scan descriptions if names yield fewer than 50 top results, or apply C-speed query in desc check before scoring.
+            matched_pkg_ids = set()
+            q0 = clean_q[0]
+
+            for pkg in items:
+                name = pkg.get("name", "")
+                if not name:
+                    continue
+                name_lower = name.lower()
+                if q0 not in name_lower and clean_q not in name_lower:
+                    continue
+                is_installed = (name in installed_set)
+                score = fuzzy_score(clean_q, name, desc="", is_installed=is_installed)
+                if score > 0:
+                    candidates.append((score, pkg))
+                    matched_pkg_ids.add(id(pkg))
+
+            # Only scan descriptions if names yield fewer than 50 top results
+            if len(candidates) < 50:
+                for pkg in items:
+                    if id(pkg) in matched_pkg_ids:
+                        continue
+                    desc = pkg.get("desc", "")
+                    if not desc:
+                        continue
+                    desc_lower = desc.lower()
+                    # Apply C-speed `query in desc` check before scoring
+                    if clean_q not in desc_lower and q_norm not in desc_lower:
+                        continue
+                    name = pkg.get("name", "")
+                    is_installed = (name in installed_set)
+                    score = fuzzy_score(clean_q, name, desc=desc, is_installed=is_installed)
+                    if score > 0:
+                        candidates.append((score, pkg))
+
+        # Sort candidates strictly by score descending
+        candidates.sort(key=lambda x: x[0], reverse=True)
+
+        results = []
+        for score, pkg in candidates[:limit]:
             name = pkg.get("name", "")
             desc = pkg.get("desc", "")
-            score = fuzzy_score(query, name, desc)
-            if score > 0:
-                is_installed = name in installed_set
-                results.append({
-                    "name": name,
-                    "version": pkg.get("version", ""),
-                    "desc": desc,
-                    "repo": pkg.get("repo", "extra"),
-                    "source": "pacman",
-                    "priority": 0,  # 1st Priority
-                    "score": score,
-                    "is_installed": is_installed,
-                    "installed_version": installed_vers.get(name, ""),
-                    "icon": resolve_icon_name(name, desc),
-                    "csize": pkg.get("csize", ""),
-                    "isize": pkg.get("isize", ""),
-                    "url": pkg.get("url", ""),
-                    "license": sanitize_str(pkg.get("license", "")),
-                    "packager": sanitize_str(pkg.get("packager", "")),
-                    "depends": pkg.get("depends", []),
-                    "optdepends": pkg.get("optdepends", []),
-                })
+            is_installed = (name in installed_set)
+            results.append({
+                "name": name,
+                "version": pkg.get("version", ""),
+                "desc": desc,
+                "repo": pkg.get("repo", "extra"),
+                "source": "pacman",
+                "priority": 0,  # 1st Priority
+                "score": score,
+                "is_installed": is_installed,
+                "installed_version": installed_vers.get(name, ""),
+                "icon": resolve_icon_name(name, desc),
+                "csize": pkg.get("csize", ""),
+                "isize": pkg.get("isize", ""),
+                "url": pkg.get("url", ""),
+                "license": sanitize_str(pkg.get("license", "")),
+                "packager": sanitize_str(pkg.get("packager", "")),
+                "depends": pkg.get("depends", []),
+                "optdepends": pkg.get("optdepends", []),
+            })
 
-        results.sort(key=lambda x: x["score"], reverse=True)
-        return results[:limit]
+        return results
 
     def search_aur(self, query: str, limit: int = 50) -> List[Dict[str, Any]]:
-        """Search AUR packages using AUR RPC API with paru fallback."""
+        """Search AUR packages using AUR RPC API with paru fallback and tiered scoring."""
         if not query.strip() or len(query.strip()) < 2:
             return []
 
-        clean_q = query.strip()
+        clean_q = query.strip().lower()
         if clean_q in self._aur_cache:
             return self._aur_cache[clean_q]
 
-        results = []
+        candidates: List[Tuple[int, Dict[str, Any]]] = []
         with self._lock:
             installed_set = self.installed_set
             installed_vers = self.installed_versions
+
+        desktop_set = get_desktop_and_curated_set()
 
         try:
             url = f"https://aur.archlinux.org/rpc/v5/search/{urllib.parse.quote(clean_q)}"
@@ -2444,11 +2742,18 @@ class PackageManager:
                 data = json.loads(resp.read().decode("utf-8"))
                 for item in data.get("results", []):
                     name = item.get("Name", "")
+                    if not name:
+                        continue
                     desc = item.get("Description", "") or ""
-                    score = fuzzy_score(clean_q, name, desc)
+                    name_lower = name.lower()
+                    is_desktop = (name_lower in desktop_set)
+                    if not is_desktop:
+                        clean_name = re.sub(r'-(bin|git|hg|svn|pure|gtk-app|qt-app|gui|desktop|launcher)$', '', name_lower)
+                        is_desktop = (clean_name in desktop_set)
+                    is_installed = (name in installed_set)
+                    score = fuzzy_score(clean_q, name, desc, is_desktop=is_desktop, is_installed=is_installed)
                     if score > 0:
-                        is_installed = name in installed_set
-                        results.append({
+                        candidates.append((score, {
                             "name": name,
                             "version": item.get("Version", ""),
                             "desc": desc,
@@ -2466,7 +2771,7 @@ class PackageManager:
                             "license": sanitize_str(item.get("License", "")),
                             "depends": item.get("Depends", []),
                             "optdepends": item.get("OptDepends", []),
-                        })
+                        }))
         except Exception:
             try:
                 p = subprocess.run(["paru", "-Ssa", clean_q], capture_output=True, text=True, timeout=5)
@@ -2483,9 +2788,15 @@ class PackageManager:
                             desc = lines[i+1].strip()
                             i += 1
                         if pkg_name:
-                            score = fuzzy_score(clean_q, pkg_name, desc)
+                            name_lower = pkg_name.lower()
+                            is_desktop = (name_lower in desktop_set)
+                            if not is_desktop:
+                                clean_name = re.sub(r'-(bin|git|hg|svn|pure|gtk-app|qt-app|gui|desktop|launcher)$', '', name_lower)
+                                is_desktop = (clean_name in desktop_set)
+                            is_installed = (pkg_name in installed_set)
+                            score = fuzzy_score(clean_q, pkg_name, desc, is_desktop=is_desktop, is_installed=is_installed)
                             if score > 0:
-                                results.append({
+                                candidates.append((score, {
                                     "name": pkg_name,
                                     "version": ver,
                                     "desc": desc,
@@ -2493,17 +2804,17 @@ class PackageManager:
                                     "source": "aur",
                                     "priority": 1,
                                     "score": score,
-                                    "is_installed": pkg_name in installed_set,
+                                    "is_installed": is_installed,
                                     "installed_version": installed_vers.get(pkg_name, ""),
                                     "icon": resolve_icon_name(pkg_name, desc),
                                     "url": f"https://aur.archlinux.org/packages/{pkg_name}",
-                                })
+                                }))
                     i += 1
             except Exception as e:
                 print(f"[Aura] Paru AUR fallback error: {e}", file=sys.stderr)
 
-        results.sort(key=lambda x: x["score"], reverse=True)
-        final_results = results[:limit]
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        final_results = [item for score, item in candidates[:limit]]
         self._aur_cache[clean_q] = final_results
         return final_results
 
@@ -2520,17 +2831,34 @@ class PackageManager:
             aur_res = self.search_aur(q, limit=limit)
 
         if filter_mode == "all":
-            combined = pacman_res + aur_res
+            seen_names = set()
+            combined = []
+            for p in pacman_res:
+                p_name = p.get("name", "")
+                if p_name and p_name not in seen_names:
+                    seen_names.add(p_name)
+                    combined.append(p)
+            for p in aur_res:
+                p_name = p.get("name", "")
+                if p_name and p_name not in seen_names:
+                    seen_names.add(p_name)
+                    combined.append(p)
         elif filter_mode == "pacman":
             combined = pacman_res
         elif filter_mode == "aur":
             combined = aur_res
         elif filter_mode == "installed":
             combined = [p for p in pacman_res if p.get("is_installed")]
+            desktop_set = get_desktop_and_curated_set()
             with self._lock:
                 for inst_name, inst_ver in self.installed_versions.items():
                     if inst_name not in self.packages:
-                        score = fuzzy_score(q, inst_name)
+                        inst_lower = inst_name.lower()
+                        is_desktop = (inst_lower in desktop_set)
+                        if not is_desktop:
+                            clean_name = re.sub(r'-(bin|git|hg|svn|pure|gtk-app|qt-app|gui|desktop|launcher)$', '', inst_lower)
+                            is_desktop = (clean_name in desktop_set)
+                        score = fuzzy_score(q, inst_name, is_desktop=is_desktop, is_installed=True)
                         if score > 0:
                             combined.append({
                                 "name": inst_name,
@@ -2551,15 +2879,39 @@ class PackageManager:
         return combined[:limit]
 
     def search(self, query: str, source: str = "all", limit: int = 100) -> List[Dict[str, Any]]:
-        """Unified search across pacman and/or AUR with strict priority."""
-        if source == "pacman":
+        """Unified search across pacman, AUR, Snap, and/or Docker with strict priority."""
+        if source == "snap":
+            return self.snap_mgr.search_snaps(query)[:limit]
+        elif source in ("container", "docker"):
+            return self.container_mgr.list_apps(query)[:limit]
+        elif source == "pacman":
             return self.search_pacman(query, limit=limit)
         elif source == "aur":
             return self.search_aur(query, limit=limit)
         return self.search_all(query, filter_mode=source, limit=limit)
 
+    def get_package_info(self, name: str, source: str = "pacman") -> Dict[str, Any]:
+        """Fetch package information unified across pacman, AUR, Snap, and Container."""
+        if source == "snap":
+            return self.snap_mgr.get_snap_details(name)
+        elif source in ("container", "docker"):
+            meta = next((a for a in self.container_mgr.CURATED_CONTAINER_APPS if a["id"] == name), None)
+            if meta:
+                return dict(meta)
+        return self.get_package_detail(name, source=source)
+
     def get_package_detail(self, name: str, source: str = "pacman") -> Dict[str, Any]:
         """Fetch full details of a package with strict sanitization."""
+        if source == "snap":
+            return self.snap_mgr.get_snap_details(name)
+        elif source in ("container", "docker"):
+            meta = next((a for a in self.container_mgr.CURATED_CONTAINER_APPS if a["id"] == name), None)
+            if meta:
+                item = dict(meta)
+                item["source"] = "docker"
+                item["is_installed"] = self.container_mgr.is_app_installed(name)
+                item["display_name"] = item.get("name", name)
+                return item
         with self._lock:
             is_installed = self.is_installed(name)
             installed_ver = self.installed_versions.get(name, "")
@@ -2710,7 +3062,7 @@ class PackageManager:
                 return ov
         if name_lower in entries:
             return entries[name_lower]
-        clean = re.sub(r'-(bin|git|hg|svn|pure|gtk-app|qt-app|gui|cli|daemon|desktop|launcher)$', '', name_lower)
+        clean = re.sub(r'-(bin|git|hg|svn|pure|gtk-app|qt-app|gui|desktop|launcher)$', '', name_lower)
         if clean in entries:
             return entries[clean]
         clean2 = re.sub(r'-(gtk|qt|gtk[0-9]|qt[0-9]|electron|wayland|x11)$', '', clean)
@@ -2806,6 +3158,130 @@ class PackageManager:
             if ASKPASS_SCRIPT.exists():
                 env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
             env["LC_ALL"] = "C"
+
+            # Check if source is snap or docker, or if updating a package that originated from snap/docker
+            actual_source = source
+            if actual_source == "pacman" and action in ["update", "upgrade"] and not is_system_upgrade:
+                with self._lock:
+                    matched = next((u for u in self.upgradable_list if u.get("name") == pkg_name), None)
+                    if matched and matched.get("source") in ("snap", "docker"):
+                        actual_source = matched["source"]
+
+            if actual_source == "snap":
+                def _snap_prog(frac_or_msg, maybe_msg=None):
+                    if isinstance(frac_or_msg, (int, float)):
+                        frac = float(frac_or_msg)
+                        msg = str(maybe_msg or "")
+                    else:
+                        msg = str(frac_or_msg)
+                        frac = 0.5
+                    _safe_progress(frac, msg)
+
+                def _snap_done(ok: bool, *args):
+                    if len(args) == 3:
+                        _, _, err = args
+                    elif len(args) == 1:
+                        err = "" if ok else str(args[0])
+                    else:
+                        err = "" if ok else "Snap operation failed"
+
+                    if ok:
+                        with self._lock:
+                            if action in ["upgrade", "update"]:
+                                self.upgradable_list = [u for u in self.upgradable_list if u.get("name") != pkg_name]
+                                try:
+                                    with open(UPDATES_CACHE_FILE, "w") as f:
+                                        json.dump(self.upgradable_list, f)
+                                except Exception:
+                                    pass
+                        comp_msg = f"Completed {action} for {pkg_name}."
+                        with self._action_lock:
+                            if self.active_transaction:
+                                self.active_transaction["progress"] = 1.0
+                                self.active_transaction["status"] = comp_msg
+                                self.active_transaction["status_msg"] = comp_msg
+                        self._last_progress = 1.0
+                        progress_cb(1.0, comp_msg)
+                        complete_cb(True, action, pkg_name, "")
+                        target_tx = self.active_transaction
+                        def _clear():
+                            time.sleep(1.0)
+                            with self._action_lock:
+                                if self.active_transaction is target_tx:
+                                    self.active_transaction = None
+                                    self._last_progress = 0.0
+                        threading.Thread(target=_clear, daemon=True).start()
+                    else:
+                        with self._action_lock:
+                            if self.active_transaction:
+                                self.active_transaction["progress"] = 0.0
+                                self.active_transaction["status"] = f"Failed: {err}"
+                                self.active_transaction["status_msg"] = f"Failed: {err}"
+                            self.active_transaction = None
+                            self._last_progress = 0.0
+                        progress_cb(0.0, f"Failed: {err}")
+                        complete_cb(False, action, pkg_name, err)
+
+                if action == "install":
+                    self.snap_mgr.install_snap(pkg_name, progress_cb=_snap_prog, complete_cb=_snap_done)
+                elif action == "remove":
+                    self.snap_mgr.remove_snap(pkg_name, progress_cb=_snap_prog, complete_cb=_snap_done)
+                elif action in ["update", "upgrade"]:
+                    self.snap_mgr.update_snap(pkg_name, progress_cb=_snap_prog, complete_cb=_snap_done)
+                else:
+                    _snap_done(False, f"Unsupported snap action: {action}")
+                return
+
+            if actual_source == "docker":
+                def _docker_prog(msg: str):
+                    _safe_progress(0.5, str(msg))
+
+                def _docker_done(ok: bool, msg: str = ""):
+                    if ok:
+                        with self._lock:
+                            self.upgradable_list = [u for u in self.upgradable_list if u.get("name") != pkg_name]
+                            try:
+                                with open(UPDATES_CACHE_FILE, "w") as f:
+                                    json.dump(self.upgradable_list, f)
+                            except Exception:
+                                pass
+                        comp_msg = f"Updated container application {pkg_name}."
+                        with self._action_lock:
+                            if self.active_transaction:
+                                self.active_transaction["progress"] = 1.0
+                                self.active_transaction["status"] = comp_msg
+                                self.active_transaction["status_msg"] = comp_msg
+                        self._last_progress = 1.0
+                        progress_cb(1.0, comp_msg)
+                        complete_cb(True, action, pkg_name, "")
+                        target_tx = self.active_transaction
+                        def _clear():
+                            time.sleep(1.0)
+                            with self._action_lock:
+                                if self.active_transaction is target_tx:
+                                    self.active_transaction = None
+                                    self._last_progress = 0.0
+                        threading.Thread(target=_clear, daemon=True).start()
+                    else:
+                        with self._action_lock:
+                            if self.active_transaction:
+                                self.active_transaction["progress"] = 0.0
+                                self.active_transaction["status"] = f"Failed: {msg}"
+                                self.active_transaction["status_msg"] = f"Failed: {msg}"
+                            self.active_transaction = None
+                            self._last_progress = 0.0
+                        progress_cb(0.0, f"Failed: {msg}")
+                        complete_cb(False, action, pkg_name, msg)
+
+                if action in ["update", "upgrade"]:
+                    self.container_mgr.update_app(pkg_name, progress_callback=_docker_prog, completion_callback=_docker_done)
+                elif action == "install":
+                    self.container_mgr.install_app(pkg_name, progress_callback=_docker_prog, completion_callback=_docker_done)
+                elif action == "remove":
+                    self.container_mgr.uninstall_app(pkg_name, progress_callback=_docker_prog, completion_callback=_docker_done)
+                else:
+                    _docker_done(False, f"Unsupported docker action: {action}")
+                return
 
             if action in ["upgrade", "update"]:
                 if is_system_upgrade:
@@ -3018,6 +3494,1036 @@ class PackageManager:
             pass
 
 
+class SnapManager:
+    """
+    Manages Snap package integration, API queries, installations, updates, and removals.
+    Features:
+    - Native integration with Snapcraft REST API v2 (find & info endpoints).
+    - Curated catalog of 16 popular applications with rich metadata.
+    - Local snapd status and installed package introspection via snap CLI & filesystem.
+    - Upgradable snap detection via 'snap refresh --list'.
+    - Background installation, removal, and refresh with realtime progress reporting.
+    """
+
+    CURATED_SNAP_APPS = [
+        {
+            "name": "spotify",
+            "title": "Spotify",
+            "summary": "Music for everyone",
+            "icon": "spotify",
+            "developer": "Spotify",
+            "category": "Audio & Video",
+            "channel": "latest/stable",
+            "confinement": "strict",
+            "publisher": "Spotify",
+            "version": "1.2.53.440.g7b2f582a",
+            "store_url": "https://snapcraft.io/spotify",
+            "store-url": "https://snapcraft.io/spotify",
+            "description": "Spotify is a digital music service that gives you access to millions of songs.",
+        },
+        {
+            "name": "code",
+            "title": "Visual Studio Code",
+            "summary": "Code editing. Redefined.",
+            "icon": "code",
+            "developer": "Microsoft",
+            "category": "Development",
+            "channel": "latest/stable",
+            "confinement": "classic",
+            "publisher": "Microsoft",
+            "version": "1.93.1",
+            "store_url": "https://snapcraft.io/code",
+            "store-url": "https://snapcraft.io/code",
+            "description": "Visual Studio Code is a code editor redefined and optimized for building modern web and cloud applications.",
+        },
+        {
+            "name": "discord",
+            "title": "Discord",
+            "summary": "All-in-one voice and text chat for gamers",
+            "icon": "discord",
+            "developer": "Snapcrafters",
+            "category": "Social & Communication",
+            "channel": "latest/stable",
+            "confinement": "strict",
+            "publisher": "Snapcrafters",
+            "version": "0.0.68",
+            "store_url": "https://snapcraft.io/discord",
+            "store-url": "https://snapcraft.io/discord",
+            "description": "Discord is the easiest way to talk over voice, video, and text.",
+        },
+        {
+            "name": "slack",
+            "title": "Slack",
+            "summary": "Team communication and collaboration platform",
+            "icon": "slack",
+            "developer": "Slack",
+            "category": "Productivity",
+            "channel": "latest/stable",
+            "confinement": "strict",
+            "publisher": "Slack",
+            "version": "4.39.95",
+            "store_url": "https://snapcraft.io/slack",
+            "store-url": "https://snapcraft.io/slack",
+            "description": "Slack brings all your team communication together, giving everyone a shared workspace.",
+        },
+        {
+            "name": "postman",
+            "title": "Postman",
+            "summary": "API platform for building and using APIs",
+            "icon": "postman",
+            "developer": "Postman, Inc.",
+            "category": "Development",
+            "channel": "latest/stable",
+            "confinement": "strict",
+            "publisher": "Postman, Inc.",
+            "version": "11.13.0",
+            "store_url": "https://snapcraft.io/postman",
+            "store-url": "https://snapcraft.io/postman",
+            "description": "Postman is an API platform for developers to design, build, test, and iterate their APIs.",
+        },
+        {
+            "name": "blender",
+            "title": "Blender",
+            "summary": "Free and open source 3D creation suite",
+            "icon": "blender",
+            "developer": "Blender Foundation",
+            "category": "Graphics & Media",
+            "channel": "latest/stable",
+            "confinement": "classic",
+            "publisher": "Blender Foundation",
+            "version": "4.2.2",
+            "store_url": "https://snapcraft.io/blender",
+            "store-url": "https://snapcraft.io/blender",
+            "description": "Blender is the free and open source 3D creation suite supporting modeling, rigging, animation, and VFX.",
+        },
+        {
+            "name": "obs-studio",
+            "title": "OBS Studio",
+            "summary": "Free and open source software for video recording and live streaming",
+            "icon": "com.obsproject.Studio",
+            "developer": "OBS Project",
+            "category": "Graphics & Media",
+            "channel": "latest/stable",
+            "confinement": "strict",
+            "publisher": "OBS Project",
+            "version": "30.2.3",
+            "store_url": "https://snapcraft.io/obs-studio",
+            "store-url": "https://snapcraft.io/obs-studio",
+            "description": "Free and open source software for video recording and live streaming.",
+        },
+        {
+            "name": "vlc",
+            "title": "VLC",
+            "summary": "The ultimate media player",
+            "icon": "vlc",
+            "developer": "VideoLAN",
+            "category": "Audio & Video",
+            "channel": "latest/stable",
+            "confinement": "strict",
+            "publisher": "VideoLAN",
+            "version": "3.0.21",
+            "store_url": "https://snapcraft.io/vlc",
+            "store-url": "https://snapcraft.io/vlc",
+            "description": "VLC is a free and open source cross-platform multimedia player and framework that plays most multimedia files.",
+        },
+        {
+            "name": "telegram-desktop",
+            "title": "Telegram Desktop",
+            "summary": "Fast and secure desktop messaging app",
+            "icon": "telegram",
+            "developer": "Telegram FZ-LLC",
+            "category": "Social & Communication",
+            "channel": "latest/stable",
+            "confinement": "strict",
+            "publisher": "Telegram FZ-LLC",
+            "version": "5.5.5",
+            "store_url": "https://snapcraft.io/telegram-desktop",
+            "store-url": "https://snapcraft.io/telegram-desktop",
+            "description": "Telegram is a cloud-based mobile and desktop messaging app with a focus on security and speed.",
+        },
+        {
+            "name": "bitwarden",
+            "title": "Bitwarden",
+            "summary": "Open-source password manager for individuals and teams",
+            "icon": "bitwarden",
+            "developer": "Bitwarden",
+            "category": "Security",
+            "channel": "latest/stable",
+            "confinement": "strict",
+            "publisher": "Bitwarden",
+            "version": "2024.9.0",
+            "store_url": "https://snapcraft.io/bitwarden",
+            "store-url": "https://snapcraft.io/bitwarden",
+            "description": "Bitwarden is the easiest and safest way to store all of your logins and passwords while keeping them synced.",
+        },
+        {
+            "name": "obsidian",
+            "title": "Obsidian",
+            "summary": "A powerful knowledge base on top of local Markdown files",
+            "icon": "obsidian",
+            "developer": "Obsidian",
+            "category": "Productivity",
+            "channel": "latest/stable",
+            "confinement": "classic",
+            "publisher": "Obsidian",
+            "version": "1.6.7",
+            "store_url": "https://snapcraft.io/obsidian",
+            "store-url": "https://snapcraft.io/obsidian",
+            "description": "Obsidian is the private and flexible writing app that adapts to the way you think.",
+        },
+        {
+            "name": "sublime-text",
+            "title": "Sublime Text",
+            "summary": "Sophisticated text editor for code, markup and prose",
+            "icon": "sublime-text",
+            "developer": "Snapcrafters",
+            "category": "Development",
+            "channel": "latest/stable",
+            "confinement": "classic",
+            "publisher": "Snapcrafters",
+            "version": "4180",
+            "store_url": "https://snapcraft.io/sublime-text",
+            "store-url": "https://snapcraft.io/sublime-text",
+            "description": "Sublime Text is a sophisticated text editor for code, markup and prose with slick user interface.",
+        },
+        {
+            "name": "gimp",
+            "title": "GIMP",
+            "summary": "GNU Image Manipulation Program",
+            "icon": "gimp",
+            "developer": "GIMP team",
+            "category": "Graphics & Media",
+            "channel": "latest/stable",
+            "confinement": "strict",
+            "publisher": "GIMP team",
+            "version": "2.10.38",
+            "store_url": "https://snapcraft.io/gimp",
+            "store-url": "https://snapcraft.io/gimp",
+            "description": "GIMP is a cross-platform image editor available for GNU/Linux, OS X, Windows and more operating systems.",
+        },
+        {
+            "name": "inkscape",
+            "title": "Inkscape",
+            "summary": "Professional vector graphics editor for Linux, Windows and macOS",
+            "icon": "org.inkscape.Inkscape",
+            "developer": "Inkscape Project",
+            "category": "Graphics & Media",
+            "channel": "latest/stable",
+            "confinement": "strict",
+            "publisher": "Inkscape Project",
+            "version": "1.3.2",
+            "store_url": "https://snapcraft.io/inkscape",
+            "store-url": "https://snapcraft.io/inkscape",
+            "description": "Inkscape is a professional vector graphics editor for Linux, Windows and macOS. It is free and open source.",
+        },
+        {
+            "name": "brave",
+            "title": "Brave",
+            "summary": "Browse privately, search independently, and protect your privacy online",
+            "icon": "brave-browser",
+            "developer": "Brave Software",
+            "category": "Internet & Network",
+            "channel": "latest/stable",
+            "confinement": "strict",
+            "publisher": "Brave Software",
+            "version": "1.70.126",
+            "store_url": "https://snapcraft.io/brave",
+            "store-url": "https://snapcraft.io/brave",
+            "description": "Brave Browser is a fast, private and secure web browser for PC, Mac and mobile.",
+        },
+        {
+            "name": "pycharm-community",
+            "title": "PyCharm Community",
+            "summary": "Python IDE for Professional Developers",
+            "icon": "pycharm-community",
+            "developer": "JetBrains",
+            "category": "Development",
+            "channel": "latest/stable",
+            "confinement": "classic",
+            "publisher": "JetBrains",
+            "version": "2024.2.2",
+            "store_url": "https://snapcraft.io/pycharm-community",
+            "store-url": "https://snapcraft.io/pycharm-community",
+            "description": "The Python IDE for Professional Developers. PyCharm provides smart code completion and code inspections.",
+        },
+    ]
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._search_cache: Dict[str, List[Dict[str, Any]]] = {}
+
+    def is_snapd_installed(self) -> bool:
+        """Check if snap command is available in PATH."""
+        return shutil.which("snap") is not None
+
+    def is_snapd_running(self) -> bool:
+        """Check if snapd daemon or socket is active."""
+        if Path("/run/snapd.socket").exists():
+            return True
+        if shutil.which("systemctl"):
+            try:
+                proc = subprocess.run(["systemctl", "is-active", "--quiet", "snapd.socket"], timeout=2)
+                return proc.returncode == 0
+            except Exception:
+                pass
+        return False
+
+    def get_status(self) -> Dict[str, Any]:
+        """Check snap binary, systemd socket, and /snap symlink status."""
+        has_snap = self.is_snapd_installed()
+        socket_active = self.is_snapd_running()
+        symlink_ok = Path("/snap").is_symlink() or Path("/snap").exists()
+
+        if has_snap and socket_active and symlink_ok:
+            status_code = "ready"
+            status_text = "Canonical Snap service active and ready"
+        elif has_snap and not socket_active:
+            status_code = "service_stopped"
+            status_text = "snapd installed but socket is inactive"
+        elif has_snap and not symlink_ok:
+            status_code = "symlink_missing"
+            status_text = "/snap classic confinement symlink missing"
+        else:
+            status_code = "missing"
+            status_text = "Snapd is not installed on this system"
+
+        return {
+            "has_snap": has_snap,
+            "socket_active": socket_active,
+            "symlink_ok": symlink_ok,
+            "status_code": status_code,
+            "status_text": status_text,
+        }
+
+    def setup_snapd(self, progress_callback=None, completion_callback=None):
+        """Seamless automated setup: install snapd via paru/pacman, enable socket, link /snap."""
+        def _task():
+            env = os.environ.copy()
+            if ASKPASS_SCRIPT.exists():
+                env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
+            env["LC_ALL"] = "C"
+
+            # Step 1: Install snapd if missing
+            if not shutil.which("snap"):
+                if progress_callback:
+                    progress_callback(0.2, "Installing snapd from repositories/AUR...")
+                if shutil.which("paru"):
+                    cmd = ["paru", "-S", "--noconfirm", "--needed", "--sudoflags", "-A", "snapd"]
+                else:
+                    cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", "--needed", "snapd"]
+                res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=300)
+                if res.returncode != 0:
+                    if completion_callback:
+                        completion_callback(False, f"Failed to install snapd: {res.stderr or res.stdout}")
+                    return
+
+            # Step 2: Enable and start snapd.socket
+            if progress_callback:
+                progress_callback(0.6, "Enabling and starting snapd.socket...")
+            res = subprocess.run(["sudo", "-A", "systemctl", "enable", "--now", "snapd.socket"],
+                                 capture_output=True, text=True, env=env, timeout=30)
+            if res.returncode != 0:
+                if completion_callback:
+                    completion_callback(False, f"Failed enabling snapd.socket: {res.stderr or res.stdout}")
+                return
+
+            # Step 3: Symlink /var/lib/snapd/snap /snap
+            if progress_callback:
+                progress_callback(0.8, "Creating /snap classical confinement symlink...")
+            if not Path("/snap").exists():
+                subprocess.run(["sudo", "-A", "ln", "-s", "/var/lib/snapd/snap", "/snap"],
+                               capture_output=True, env=env, timeout=10)
+
+            # Step 4: Verify socket
+            time.sleep(1)
+            if progress_callback:
+                progress_callback(1.0, "Snap service ready!")
+            if completion_callback:
+                completion_callback(True, "Snap Store successfully configured and ready!")
+
+        threading.Thread(target=_task, daemon=True).start()
+
+    def disable_snapd(self, purge_packages: bool = False, progress_callback=None, completion_callback=None):
+        """Disable snapd service and optionally remove package and symlink."""
+        def _task():
+            env = os.environ.copy()
+            if ASKPASS_SCRIPT.exists():
+                env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
+            env["LC_ALL"] = "C"
+
+            if progress_callback:
+                progress_callback(0.3, "Stopping and disabling snapd services...")
+            subprocess.run(["sudo", "-A", "systemctl", "disable", "--now", "snapd.socket", "snapd.service"],
+                           capture_output=True, env=env, timeout=30)
+
+            if Path("/snap").is_symlink():
+                subprocess.run(["sudo", "-A", "rm", "-f", "/snap"], capture_output=True, env=env, timeout=10)
+
+            if purge_packages:
+                if progress_callback:
+                    progress_callback(0.7, "Removing snapd package...")
+                subprocess.run(["sudo", "-A", "pacman", "-Rns", "--noconfirm", "snapd"],
+                               capture_output=True, env=env, timeout=60)
+
+            if completion_callback:
+                completion_callback(True, "Snap setup disabled successfully.")
+
+        threading.Thread(target=_task, daemon=True).start()
+
+    def is_snap_installed(self, name: str) -> bool:
+        """Check if a snap package is installed locally."""
+        clean = (name or "").strip().lower()
+        if not clean:
+            return False
+        try:
+            snaps_dir = Path("/var/lib/snapd/snaps")
+            if snaps_dir.exists():
+                if list(snaps_dir.glob(f"{clean}_*.snap")):
+                    return True
+        except Exception:
+            pass
+        try:
+            if Path(f"/snap/{clean}").exists():
+                return True
+        except Exception:
+            pass
+        try:
+            installed = self.get_installed_snaps()
+            return any(s.get("name", "").lower() == clean for s in installed)
+        except Exception:
+            pass
+        return False
+
+    def get_installed_snaps(self) -> List[Dict[str, Any]]:
+        """List locally installed snaps by parsing 'snap list' output."""
+        if not self.is_snapd_installed():
+            return []
+        try:
+            res = subprocess.run(["snap", "list"], capture_output=True, text=True, timeout=5)
+            if res.returncode != 0:
+                return []
+            lines = res.stdout.splitlines()
+            if not lines:
+                return []
+            installed = []
+            for line in lines[1:]:
+                parts = line.split()
+                if not parts:
+                    continue
+                name = parts[0]
+                version = parts[1] if len(parts) > 1 else ""
+                rev = parts[2] if len(parts) > 2 else ""
+                tracking = parts[3] if len(parts) > 3 else ""
+                publisher = parts[4] if len(parts) > 4 else ""
+                notes = " ".join(parts[5:]) if len(parts) > 5 else ""
+                installed.append({
+                    "name": name,
+                    "version": version,
+                    "rev": rev,
+                    "tracking": tracking,
+                    "publisher": publisher,
+                    "notes": notes,
+                    "source": "snap",
+                    "is_installed": True,
+                    "icon": resolve_icon_name(name),
+                })
+            return installed
+        except Exception:
+            return []
+
+    def check_snap_updates(self) -> List[Dict[str, Any]]:
+        """Check for upgradable snaps using 'snap refresh --list'."""
+        if not self.is_snapd_installed():
+            return []
+        updates: List[Dict[str, Any]] = []
+        try:
+            res = subprocess.run(["snap", "refresh", "--list"], capture_output=True, text=True, timeout=10)
+            if res.returncode != 0:
+                return []
+            output = res.stdout.strip()
+            if not output or "all snaps up to date" in output.lower():
+                return []
+
+            installed_map = {s["name"].lower(): s.get("version", "installed") for s in self.get_installed_snaps()}
+            lines = output.splitlines()
+            if lines and ("Name" in lines[0] or "NAME" in lines[0]):
+                lines = lines[1:]
+            for line in lines:
+                parts = line.split()
+                if not parts:
+                    continue
+                name = parts[0]
+                new_ver = parts[1] if len(parts) > 1 else "latest"
+                old_ver = installed_map.get(name.lower(), "installed")
+                updates.append({
+                    "name": name,
+                    "old_ver": old_ver,
+                    "new_ver": new_ver,
+                    "source": "snap",
+                    "desc": f"Snap package update ({new_ver})",
+                    "icon": resolve_icon_name(name),
+                })
+        except Exception:
+            pass
+        return updates
+
+    @staticmethod
+    def _parse_snap_info(raw_output: str) -> Dict[str, Any]:
+        """Parse key-value pairs and metadata from 'snap info' output."""
+        details: Dict[str, Any] = {}
+        in_desc = False
+        desc_lines = []
+
+        for line in raw_output.splitlines():
+            # Handle multi-line description block
+            if in_desc:
+                if line.startswith("  ") or line.startswith("\t"):
+                    desc_lines.append(line.strip())
+                    continue
+                else:
+                    in_desc = False
+                    details["description"] = "\n".join(desc_lines).strip()
+
+            if line.startswith("description:"):
+                in_desc = True
+                desc_lines = []
+                val = line.split(":", 1)[1].strip()
+                if val and val != "|":
+                    desc_lines.append(val)
+                continue
+
+            if ":" in line:
+                key, val = line.split(":", 1)
+                key = key.strip().lower()
+                val = val.strip()
+
+                if key == "name":
+                    details["name"] = val
+                elif key == "summary":
+                    details["summary"] = val
+                elif key == "publisher":
+                    details["publisher"] = val
+                elif key in ("store-url", "store_url"):
+                    details["store-url"] = val
+                    details["store_url"] = val
+                elif key == "license":
+                    details["license"] = val
+                elif key == "version":
+                    details["version"] = val
+                elif key == "installed":
+                    parts = val.split()
+                    if parts:
+                        details["installed_version"] = parts[0]
+                        if "version" not in details:
+                            details["version"] = parts[0]
+                elif key == "latest/stable":
+                    parts = val.split()
+                    if parts and parts[0] != "↑" and "version" not in details:
+                        details["version"] = parts[0]
+
+        if in_desc and desc_lines and "description" not in details:
+            details["description"] = "\n".join(desc_lines).strip()
+
+        return details
+
+    def search_snaps(self, query: str = "") -> List[Dict[str, Any]]:
+        """Search snaps via snap CLI or Snapcraft API with fallback to curated collection."""
+        q = (query or "").strip().lower()
+        if hasattr(self, "_search_cache") and q and q in self._search_cache:
+            return list(self._search_cache[q])
+        results: List[Dict[str, Any]] = []
+        seen_names = set()
+
+        # 1. Try local snap CLI search first if snap is installed
+        if shutil.which("snap"):
+            try:
+                proc = subprocess.run(
+                    ["snap", "find", q if q else "desktop"],
+                    capture_output=True, text=True, timeout=8
+                )
+                if proc.returncode == 0:
+                    lines = proc.stdout.splitlines()
+                    if lines and ("Name" in lines[0] or "NAME" in lines[0]):
+                        lines = lines[1:]
+                    for line in lines:
+                        parts = line.split(None, 4)
+                        if len(parts) >= 5:
+                            s_name, s_ver, s_pub, s_notes, s_summary = parts
+                        elif len(parts) == 4:
+                            s_name, s_ver, s_pub, s_summary = parts
+                        elif len(parts) >= 2:
+                            s_name = parts[0]
+                            s_summary = " ".join(parts[1:])
+                            s_pub = "Unknown"
+                        else:
+                            continue
+
+                        s_name = s_name.strip()
+                        if not s_name or s_name in seen_names:
+                            continue
+                        seen_names.add(s_name)
+                        curated = next((c for c in self.CURATED_SNAP_APPS if c["name"].lower() == s_name.lower()), None)
+                        title = curated["title"] if curated else s_name.replace("-", " ").title()
+                        results.append({
+                            "name": s_name,
+                            "title": title,
+                            "summary": s_summary.strip(),
+                            "desc": s_summary.strip(),
+                            "publisher": s_pub.strip(),
+                            "developer": s_pub.strip(),
+                            "source": "snap",
+                            "icon": curated.get("icon", s_name) if curated else s_name,
+                            "category": curated.get("category", "Snap Package") if curated else "Snap Package",
+                            "channel": curated.get("channel", "latest/stable") if curated else "latest/stable",
+                            "confinement": curated.get("confinement", "strict") if curated else "strict",
+                            "is_installed": self.is_snap_installed(s_name),
+                            "store-url": f"https://snapcraft.io/{s_name}",
+                            "store_url": f"https://snapcraft.io/{s_name}",
+                        })
+            except Exception:
+                pass
+
+        # 2. If CLI did not find results, query Snapcraft API v2
+        if not results and q:
+            try:
+                url = f"https://api.snapcraft.io/v2/snaps/find?q={urllib.parse.quote(q)}&fields=title,summary,publisher,media"
+                req = urllib.request.Request(
+                    url,
+                    headers={"Snap-Device-Series": "16", "User-Agent": "Aura-Store/1.0"}
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    for item in data.get("results", []):
+                        snap_name = item.get("name", "").strip()
+                        if not snap_name or snap_name in seen_names:
+                            continue
+                        seen_names.add(snap_name)
+                        snap_info = item.get("snap", {})
+                        curated = next((c for c in self.CURATED_SNAP_APPS if c["name"].lower() == snap_name.lower()), None)
+                        title = curated["title"] if curated else (snap_info.get("title") or snap_name.replace("-", " ").title())
+                        summary = snap_info.get("summary") or ""
+                        pub_info = snap_info.get("publisher", {})
+                        developer = pub_info.get("display-name") or pub_info.get("username") or "Unknown"
+
+                        icon_url = None
+                        media = snap_info.get("media", [])
+                        if isinstance(media, list):
+                            for m in media:
+                                if isinstance(m, dict) and m.get("type") == "icon" and m.get("url"):
+                                    icon_url = m["url"]
+                                    break
+
+                        cat = curated.get("category", "Snap Package") if curated else "Snap Package"
+                        conf = curated.get("confinement", "strict") if curated else "strict"
+                        chan = curated.get("channel", "latest/stable") if curated else "latest/stable"
+                        icon = icon_url or (curated.get("icon", snap_name) if curated else resolve_icon_name(snap_name, summary))
+
+                        results.append({
+                            "name": snap_name,
+                            "title": title,
+                            "summary": summary,
+                            "desc": summary,
+                            "icon": icon,
+                            "icon_url": icon_url,
+                            "developer": developer,
+                            "publisher": developer,
+                            "category": cat,
+                            "channel": chan,
+                            "confinement": conf,
+                            "source": "snap",
+                            "is_installed": self.is_snap_installed(snap_name),
+                            "store-url": f"https://snapcraft.io/{snap_name}",
+                            "store_url": f"https://snapcraft.io/{snap_name}",
+                        })
+            except Exception:
+                pass
+
+        # 3. Fallback / augment with curated catalog
+        if not results:
+            for app in self.CURATED_SNAP_APPS:
+                s_name = app["name"].lower()
+                if not q or (
+                    q in s_name
+                    or q in app.get("title", "").lower()
+                    or q in app.get("summary", "").lower()
+                    or q in app.get("category", "").lower()
+                    or q in app.get("developer", "").lower()
+                ):
+                    item = dict(app)
+                    item["is_installed"] = self.is_snap_installed(s_name)
+                    item["desc"] = app.get("summary", "")
+                    item["source"] = "snap"
+                    results.append(item)
+                    seen_names.add(s_name)
+        elif q:
+            for app in self.CURATED_SNAP_APPS:
+                s_name = app["name"].lower()
+                if s_name not in seen_names and (
+                    q in s_name or q in app.get("title", "").lower()
+                ):
+                    item = dict(app)
+                    item["is_installed"] = self.is_snap_installed(s_name)
+                    item["desc"] = app.get("summary", "")
+                    item["source"] = "snap"
+                    results.insert(0, item)
+                    seen_names.add(s_name)
+
+        def _snap_rank(item: Dict[str, Any]) -> int:
+            nm = item.get("name", "").lower()
+            tt = item.get("title", "").lower()
+            if nm == q or tt == q:
+                return 0
+            if nm.startswith(q) or tt.startswith(q):
+                return 1
+            if q in nm:
+                return 2
+            return 3
+
+        if q:
+            results.sort(key=_snap_rank)
+
+        if hasattr(self, "_search_cache") and q:
+            self._search_cache[q] = list(results)
+        return results
+
+    def get_snap_details(self, name: str) -> Dict[str, Any]:
+        """Fetch full package details via snap CLI or Snapcraft API with fallback to curated catalog."""
+        snap_name = (name or "").strip().lower()
+        curated = next((c for c in self.CURATED_SNAP_APPS if c["name"].lower() == snap_name), None)
+
+        # 1. Try local 'snap info' CLI first if snap is available
+        if shutil.which("snap"):
+            try:
+                proc = subprocess.run(["snap", "info", snap_name], capture_output=True, text=True, timeout=8)
+                if proc.returncode == 0:
+                    parsed = self._parse_snap_info(proc.stdout)
+                    if parsed:
+                        info = dict(curated) if curated else {}
+                        info.update(parsed)
+                        info["name"] = snap_name
+                        info["title"] = curated["title"] if curated else snap_name.replace("-", " ").title()
+                        info["display_name"] = info["title"]
+                        info["summary"] = parsed.get("summary", curated.get("summary", "") if curated else "")
+                        info["desc"] = info["summary"]
+                        info["publisher"] = parsed.get("publisher", curated.get("publisher", "Unknown") if curated else "Unknown")
+                        info["developer"] = info["publisher"]
+                        info["version"] = parsed.get("version", curated.get("version", "latest") if curated else "latest")
+                        info["store-url"] = parsed.get("store-url", curated.get("store_url", f"https://snapcraft.io/{snap_name}") if curated else f"https://snapcraft.io/{snap_name}")
+                        info["store_url"] = info["store-url"]
+                        info["confinement"] = curated.get("confinement", "strict") if curated else "strict"
+                        info["category"] = curated.get("category", "Snap Package") if curated else "Snap Package"
+                        info["icon"] = curated.get("icon", snap_name) if curated else resolve_icon_name(snap_name, info["summary"])
+                        info["source"] = "snap"
+                        info["is_installed"] = self.is_snap_installed(snap_name)
+                        return info
+            except Exception:
+                pass
+
+        # 2. Query Snapcraft API v2
+        details: Optional[Dict[str, Any]] = None
+        try:
+            url = f"https://api.snapcraft.io/v2/snaps/info/{urllib.parse.quote(snap_name)}?fields=title,summary,description,license,confinement,media,publisher,version,download"
+            req = urllib.request.Request(
+                url,
+                headers={"Snap-Device-Series": "16", "User-Agent": "Aura-Store/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                snap_obj = data.get("snap", {})
+                cm = data.get("channel-map", [])
+                stable_entry = next((e for e in cm if e.get("channel", {}).get("risk") == "stable"), cm[0] if cm else {})
+                pub_obj = snap_obj.get("publisher", {})
+                developer = pub_obj.get("display-name") or pub_obj.get("username") or (curated.get("developer") if curated else "Unknown")
+                title = curated["title"] if curated else (snap_obj.get("title") or snap_name.replace("-", " ").title())
+                summary = snap_obj.get("summary") or (curated.get("summary") if curated else "")
+                description = snap_obj.get("description") or summary or (curated.get("description") if curated else "")
+                version = stable_entry.get("version") or (curated.get("version") if curated else "latest")
+                confinement = stable_entry.get("confinement") or (curated.get("confinement") if curated else "strict")
+                license_str = snap_obj.get("license") or "Proprietary / Open Source"
+                store_url = snap_obj.get("store-url") or f"https://snapcraft.io/{snap_name}"
+
+                icon_url = None
+                screenshots = []
+                media = snap_obj.get("media", [])
+                if isinstance(media, list):
+                    for m in media:
+                        if isinstance(m, dict):
+                            if m.get("type") == "icon" and m.get("url") and not icon_url:
+                                icon_url = m["url"]
+                            elif m.get("type") == "screenshot" and m.get("url"):
+                                screenshots.append(m["url"])
+
+                icon = icon_url or (curated.get("icon") if curated else resolve_icon_name(snap_name, summary))
+                category = curated.get("category", "Snap Package") if curated else "Snap Package"
+
+                details = {
+                    "name": snap_name,
+                    "title": title,
+                    "display_name": title,
+                    "summary": summary,
+                    "description": description,
+                    "desc": summary or description,
+                    "version": version,
+                    "publisher": developer,
+                    "developer": developer,
+                    "license": license_str,
+                    "channel-map": cm,
+                    "channel_map": cm,
+                    "store-url": store_url,
+                    "store_url": store_url,
+                    "confinement": confinement,
+                    "category": category,
+                    "icon": icon,
+                    "icon_url": icon_url,
+                    "screenshots": screenshots,
+                    "source": "snap",
+                    "is_installed": self.is_snap_installed(snap_name),
+                }
+        except Exception:
+            pass
+
+        if details:
+            return details
+
+        # 3. Fallback to curated catalog or sensible defaults
+        title = curated["title"] if curated else snap_name.replace("-", " ").title()
+        summary = curated.get("summary", "") if curated else "Snap package"
+        developer = curated.get("developer", "Unknown") if curated else "Unknown"
+        version = curated.get("version", "latest") if curated else "latest"
+        icon = curated.get("icon", snap_name) if curated else resolve_icon_name(snap_name)
+        confinement = curated.get("confinement", "strict") if curated else "strict"
+        store_url = curated.get("store_url", f"https://snapcraft.io/{snap_name}") if curated else f"https://snapcraft.io/{snap_name}"
+        desc = curated.get("description", summary) if curated else summary
+
+        return {
+            "name": snap_name,
+            "title": title,
+            "display_name": title,
+            "summary": summary,
+            "description": desc,
+            "desc": summary,
+            "version": version,
+            "publisher": developer,
+            "developer": developer,
+            "license": "Proprietary / Open Source",
+            "channel-map": [],
+            "channel_map": [],
+            "store-url": store_url,
+            "store_url": store_url,
+            "confinement": confinement,
+            "category": curated.get("category", "Snap Package") if curated else "Snap Package",
+            "icon": icon,
+            "screenshots": [],
+            "source": "snap",
+            "is_installed": self.is_snap_installed(snap_name),
+        }
+
+    def install_snap(self, name: str, classic: bool = False, progress_cb = None, complete_cb = None):
+        """Install a snap package using 'sudo -A snap install'."""
+        def _task():
+            if not self.is_snapd_installed():
+                err_msg = "snapd service is required to install Snap packages. Install snapd and run: sudo systemctl enable --now snapd.socket"
+                self._call_progress(progress_cb, 0.0, err_msg)
+                self._call_complete(complete_cb, False, "install", name, err_msg)
+                return
+
+            is_classic = classic
+            if not is_classic:
+                curated = next((c for c in self.CURATED_SNAP_APPS if c["name"].lower() == name.lower()), None)
+                if curated and curated.get("confinement") == "classic":
+                    is_classic = True
+                elif not curated:
+                    details = self.get_snap_details(name)
+                    if details.get("confinement") == "classic":
+                        is_classic = True
+
+            cmd = ["sudo", "-A", "snap", "install"]
+            if is_classic:
+                cmd.append("--classic")
+            cmd.append(name)
+
+            env = os.environ.copy()
+            if ASKPASS_SCRIPT.exists():
+                env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
+            env["LC_ALL"] = "C"
+
+            self._call_progress(progress_cb, 0.1, f"Installing snap package {name}...")
+
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    env=env
+                )
+                output_lines = []
+                for line in proc.stdout:
+                    line_str = line.strip()
+                    if line_str:
+                        output_lines.append(line_str)
+                        self._call_progress(progress_cb, 0.5, line_str)
+
+                proc.wait()
+                if proc.returncode == 0:
+                    self._call_progress(progress_cb, 1.0, f"Successfully installed {name}!")
+                    self._call_complete(complete_cb, True, "install", name, "")
+                else:
+                    err = "\n".join(output_lines[-3:]) if output_lines else f"Exited with code {proc.returncode}"
+                    self._call_progress(progress_cb, 0.0, f"Installation failed: {err}")
+                    self._call_complete(complete_cb, False, "install", name, err)
+            except Exception as e:
+                self._call_progress(progress_cb, 0.0, f"Error: {e}")
+                self._call_complete(complete_cb, False, "install", name, str(e))
+
+        threading.Thread(target=_task, daemon=True).start()
+
+    def remove_snap(self, name: str, progress_cb = None, complete_cb = None):
+        """Remove a snap package using 'sudo -A snap remove'."""
+        def _task():
+            if not self.is_snapd_installed():
+                err_msg = "snapd is not installed."
+                self._call_progress(progress_cb, 0.0, err_msg)
+                self._call_complete(complete_cb, False, "remove", name, err_msg)
+                return
+
+            cmd = ["sudo", "-A", "snap", "remove", name]
+            env = os.environ.copy()
+            if ASKPASS_SCRIPT.exists():
+                env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
+            env["LC_ALL"] = "C"
+
+            self._call_progress(progress_cb, 0.1, f"Removing snap package {name}...")
+
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    env=env
+                )
+                output_lines = []
+                for line in proc.stdout:
+                    line_str = line.strip()
+                    if line_str:
+                        output_lines.append(line_str)
+                        self._call_progress(progress_cb, 0.5, line_str)
+
+                proc.wait()
+                if proc.returncode == 0:
+                    self._call_progress(progress_cb, 1.0, f"Successfully removed {name}!")
+                    self._call_complete(complete_cb, True, "remove", name, "")
+                else:
+                    err = "\n".join(output_lines[-3:]) if output_lines else f"Exited with code {proc.returncode}"
+                    self._call_progress(progress_cb, 0.0, f"Removal failed: {err}")
+                    self._call_complete(complete_cb, False, "remove", name, err)
+            except Exception as e:
+                self._call_progress(progress_cb, 0.0, f"Error: {e}")
+                self._call_complete(complete_cb, False, "remove", name, str(e))
+
+        threading.Thread(target=_task, daemon=True).start()
+
+    def update_snap(self, name: str, progress_cb = None, complete_cb = None):
+        """Refresh / update a snap package using 'sudo -A snap refresh'."""
+        def _task():
+            if not self.is_snapd_installed():
+                err_msg = "snapd is not installed."
+                self._call_progress(progress_cb, 0.0, err_msg)
+                self._call_complete(complete_cb, False, "update", name, err_msg)
+                return
+
+            cmd = ["sudo", "-A", "snap", "refresh", name]
+            env = os.environ.copy()
+            if ASKPASS_SCRIPT.exists():
+                env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
+            env["LC_ALL"] = "C"
+
+            self._call_progress(progress_cb, 0.1, f"Refreshing snap package {name}...")
+
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    env=env
+                )
+                output_lines = []
+                for line in proc.stdout:
+                    line_str = line.strip()
+                    if line_str:
+                        output_lines.append(line_str)
+                        self._call_progress(progress_cb, 0.5, line_str)
+
+                proc.wait()
+                if proc.returncode == 0:
+                    self._call_progress(progress_cb, 1.0, f"Successfully refreshed {name}!")
+                    self._call_complete(complete_cb, True, "update", name, "")
+                else:
+                    err = "\n".join(output_lines[-3:]) if output_lines else f"Exited with code {proc.returncode}"
+                    self._call_progress(progress_cb, 0.0, f"Refresh failed: {err}")
+                    self._call_complete(complete_cb, False, "update", name, err)
+            except Exception as e:
+                self._call_progress(progress_cb, 0.0, f"Error: {e}")
+                self._call_complete(complete_cb, False, "update", name, str(e))
+
+        threading.Thread(target=_task, daemon=True).start()
+
+    def list_apps(self, query: str = "") -> List[Dict[str, Any]]:
+        """List curated and discovered snap applications."""
+        return self.search_snaps(query)
+
+    @staticmethod
+    def _call_progress(cb, frac: float, msg: str):
+        if not cb:
+            return
+        try:
+            import inspect
+            sig = inspect.signature(cb)
+            if len(sig.parameters) == 1:
+                cb(msg)
+            else:
+                cb(frac, msg)
+        except Exception:
+            try:
+                cb(frac, msg)
+            except Exception:
+                try:
+                    cb(msg)
+                except Exception:
+                    pass
+
+    @staticmethod
+    def _call_complete(cb, ok: bool, action: str, name: str, err_or_msg: str):
+        if not cb:
+            return
+        try:
+            import inspect
+            sig = inspect.signature(cb)
+            num = len(sig.parameters)
+            if num == 4:
+                cb(ok, action, name, err_or_msg if not ok else "")
+            elif num == 2:
+                cb(ok, err_or_msg)
+            else:
+                try:
+                    cb(ok, action, name, err_or_msg if not ok else "")
+                except TypeError:
+                    cb(ok, err_or_msg)
+        except Exception:
+            try:
+                cb(ok, action, name, err_or_msg if not ok else "")
+            except Exception:
+                try:
+                    cb(ok, err_or_msg)
+                except Exception:
+                    pass
+
+
 class ContainerManager:
     """
     Manages OCI container applications and host desktop shortcut integration.
@@ -3163,6 +4669,11 @@ class ContainerManager:
     def is_app_installing(self, app_id: str) -> bool:
         return app_id in self.active_container_installs
 
+    @property
+    def is_ready(self) -> bool:
+        st = self.get_status()
+        return st.get("status_code") == "ready"
+
     def get_status(self) -> Dict[str, Any]:
         """Check container runtime and container existence."""
         has_docker = shutil.which("docker") is not None
@@ -3172,7 +4683,7 @@ class ContainerManager:
 
         if has_docker:
             try:
-                proc = subprocess.run(["docker", "info"], capture_output=True, timeout=3)
+                proc = subprocess.run(["docker", "info"], capture_output=True, timeout=6)
                 if proc.returncode == 0:
                     daemon_running = True
             except Exception:
@@ -3182,7 +4693,7 @@ class ContainerManager:
             try:
                 proc = subprocess.run(
                     ["docker", "inspect", "-f", "{{.State.Running}}", self.CONTAINER_NAME],
-                    capture_output=True, text=True, timeout=3
+                    capture_output=True, text=True, timeout=4
                 )
                 if proc.returncode == 0:
                     container_exists = True
@@ -3214,6 +4725,54 @@ class ContainerManager:
             "status_text": status_text,
         }
 
+    def stop_container(self, completion_callback=None):
+        """Stop aura-box container."""
+        def _task():
+            res = subprocess.run(["docker", "stop", self.CONTAINER_NAME], capture_output=True, text=True, timeout=15)
+            if completion_callback:
+                completion_callback(res.returncode == 0, "Container stopped." if res.returncode == 0 else res.stderr)
+        threading.Thread(target=_task, daemon=True).start()
+
+    def remove_container(self, purge_shortcuts: bool = True, completion_callback=None):
+        """Remove aura-box container and purge host desktop shortcuts."""
+        def _task():
+            subprocess.run(["docker", "rm", "-f", self.CONTAINER_NAME], capture_output=True, timeout=15)
+            if purge_shortcuts:
+                for shortcut in self.SHORTCUTS_DIR.glob(f"{self.CONTAINER_NAME}-*.desktop"):
+                    try:
+                        shortcut.unlink()
+                    except Exception:
+                        pass
+                try:
+                    subprocess.run(["update-desktop-database", str(self.SHORTCUTS_DIR)], capture_output=True, timeout=5)
+                except Exception:
+                    pass
+            if completion_callback:
+                completion_callback(True, "Aura Box sandbox and desktop shortcuts removed.")
+        threading.Thread(target=_task, daemon=True).start()
+
+    def disable_docker_system_service(self, remove_from_group: bool = False, completion_callback=None):
+        """System-level: disable docker.service and optionally drop user from docker group."""
+        def _task():
+            env = os.environ.copy()
+            if ASKPASS_SCRIPT.exists():
+                env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
+            env["LC_ALL"] = "C"
+
+            res = subprocess.run(["docker", "ps", "--format", "{{.Names}}"], capture_output=True, text=True, timeout=5)
+            other_containers = [c for c in res.stdout.splitlines() if c.strip() and c.strip() != self.CONTAINER_NAME]
+
+            subprocess.run(["sudo", "-A", "systemctl", "disable", "--now", "docker.service", "docker.socket"],
+                           capture_output=True, env=env, timeout=30)
+
+            if remove_from_group:
+                user = os.environ.get("USER", "root")
+                subprocess.run(["sudo", "-A", "gpasswd", "-d", user, "docker"], capture_output=True, env=env, timeout=10)
+
+            if completion_callback:
+                completion_callback(True, f"Docker service disabled. Stopped other containers: {other_containers or 'none'}.")
+        threading.Thread(target=_task, daemon=True).start()
+
     def ensure_container_configured(self, progress_callback: Optional[Callable[[str], None]] = None) -> Tuple[bool, str]:
         """Auto create and start Docker container if not running."""
         status = self.get_status()
@@ -3228,6 +4787,7 @@ class ContainerManager:
                 progress_callback(f"Starting existing '{self.CONTAINER_NAME}' container...")
             proc = subprocess.run(["docker", "start", self.CONTAINER_NAME], capture_output=True, text=True, timeout=10)
             if proc.returncode == 0:
+                subprocess.run(["docker", "update", "--restart", "unless-stopped", self.CONTAINER_NAME], capture_output=True, timeout=5)
                 if progress_callback:
                     progress_callback("Installing baseline GUI libraries (mesa, x11, fonts)...")
                 subprocess.run(["docker", "exec", self.CONTAINER_NAME, "apk", "add", "--no-cache", "mesa-gl", "mesa-dri-gallium", "mesa-egl", "libx11", "font-noto"], capture_output=True, timeout=60)
@@ -3248,7 +4808,7 @@ class ContainerManager:
         cmd = [
             "docker", "run", "-d",
             "--name", self.CONTAINER_NAME,
-            "--restart", "always",
+            "--restart", "unless-stopped",
             "--ipc=host",
             "--net=host",
             "-v", "/tmp/.X11-unix:/tmp/.X11-unix:ro",
@@ -3507,4 +5067,415 @@ X-Aura-AppId={app_id}
         display = os.environ.get("DISPLAY", ":0")
         wayland = os.environ.get("WAYLAND_DISPLAY", "wayland-1")
         subprocess.Popen(["docker", "exec", "-d", "-e", f"DISPLAY={display}", "-e", f"WAYLAND_DISPLAY={wayland}", self.CONTAINER_NAME, binary])
+
+    def check_container_updates(self) -> List[Dict[str, Any]]:
+        """Check for updates available for container-installed applications or base image."""
+        updates: List[Dict[str, Any]] = []
+        status = self.get_status()
+        if not status.get("daemon_running") or not status.get("container_running"):
+            return updates
+
+        try:
+            proc = subprocess.run(
+                ["docker", "exec", self.CONTAINER_NAME, "apk", "version", "-l", "<"],
+                capture_output=True, text=True, timeout=10
+            )
+            if proc.returncode == 0:
+                for line in proc.stdout.splitlines():
+                    line = line.strip()
+                    parts = line.split("<", 1)
+                    if len(parts) == 2:
+                        old_str = parts[0].strip()
+                        new_str = parts[1].strip()
+                        updates.append({
+                            "name": old_str,
+                            "current_version": old_str,
+                            "new_version": new_str,
+                            "type": "container",
+                            "desc": "Container app update",
+                            "old_ver": old_str,
+                            "new_ver": new_str,
+                            "source": "docker",
+                            "icon": "application-x-executable",
+                        })
+        except Exception:
+            pass
+
+        return updates
+
+    def update_app(self, app_id: str, progress_callback: Optional[Callable[[str], None]] = None, completion_callback: Optional[Callable[[bool, str], None]] = None):
+        """Update container application via 'apk add --upgrade --no-cache' and refresh shortcut."""
+        def _task():
+            self.active_container_installs.add(app_id)
+            try:
+                app_meta = next((a for a in self.CURATED_CONTAINER_APPS if a["id"] == app_id), None)
+                if not app_meta:
+                    app_meta = {
+                        "id": app_id,
+                        "name": app_id.capitalize(),
+                        "desc": f"Container application ({app_id})",
+                        "category": "Utility",
+                        "icon": "application-x-executable",
+                        "binary": app_id,
+                        "pkg": app_id,
+                    }
+
+                # 1. Ensure container is configured and running
+                ok, msg = self.ensure_container_configured(progress_callback)
+                if not ok:
+                    if completion_callback:
+                        completion_callback(False, f"Container setup failed: {msg}")
+                    return
+
+                # 2. Upgrade inside container
+                name = app_meta.get("name", app_id)
+                pkg = app_meta.get("pkg", app_id)
+                if progress_callback:
+                    progress_callback(f"Updating {name} in '{self.CONTAINER_NAME}'...")
+
+                cmd = ["docker", "exec", self.CONTAINER_NAME, "apk", "add", "--upgrade", "--no-cache", pkg]
+                try:
+                    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                    if proc.returncode != 0:
+                        if completion_callback:
+                            completion_callback(False, f"Update failed: {proc.stderr}")
+                        return
+                except Exception as e:
+                    if completion_callback:
+                        completion_callback(False, f"Update error: {e}")
+                    return
+
+                # 3. Re-generate desktop shortcut
+                if progress_callback:
+                    progress_callback("Re-generating host desktop shortcut...")
+
+                shortcut_path = self.SHORTCUTS_DIR / f"aura-box-{app_id}.desktop"
+                shortcut_content = f"""[Desktop Entry]
+Version=1.0
+Type=Application
+Name={app_meta['name']} (Docker)
+GenericName={app_meta.get('desc', '')}
+Comment=Sandboxed Docker container application
+Exec=sh -c 'docker exec -d -e DISPLAY=\"$DISPLAY\" -e WAYLAND_DISPLAY=\"$WAYLAND_DISPLAY\" -e XDG_RUNTIME_DIR=\"$XDG_RUNTIME_DIR\" {self.CONTAINER_NAME} {app_meta["binary"]} %U'
+Icon={app_meta.get('icon', 'application-x-executable')}
+Terminal=false
+Categories={app_meta.get('category', 'Utility')};
+StartupNotify=true
+X-Aura-Docker=true
+X-Aura-AppId={app_id}
+"""
+                try:
+                    shortcut_path.write_text(shortcut_content)
+                    shortcut_path.chmod(0o755)
+                    subprocess.run(["update-desktop-database", str(self.SHORTCUTS_DIR)], capture_output=True, timeout=3)
+                except Exception as e:
+                    if completion_callback:
+                        completion_callback(False, f"Failed updating shortcut: {e}")
+                    return
+
+                if progress_callback:
+                    progress_callback(f"Successfully updated {name}!")
+
+                if completion_callback:
+                    completion_callback(True, f"Updated {name} and refreshed desktop shortcut.")
+            finally:
+                self.active_container_installs.discard(app_id)
+
+        threading.Thread(target=_task, daemon=True).start()
+
+
+class CacheManager:
+    """
+    Introspects and safely prunes system and user caches for Arch Linux & Aura:
+    - Pacman package cache (/var/cache/pacman/pkg/)
+    - AUR build cache (~/.cache/paru/clone/, ~/.cache/yay/)
+    - Docker container engine layers and stopped containers
+    - Aura application index & vector icon caches (~/.cache/aura/)
+    - Systemd journal archives (/var/log/journal/)
+    """
+
+    PACMAN_CACHE_DIR = Path("/var/cache/pacman/pkg")
+    PARU_CACHE_DIR = Path.home() / ".cache" / "paru" / "clone"
+    YAY_CACHE_DIR = Path.home() / ".cache" / "yay"
+    AURA_CACHE_DIR = Path.home() / ".cache" / "aura"
+
+    def __init__(self):
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def _dir_size(path: Path) -> int:
+        if not path.exists():
+            return 0
+        total = 0
+        try:
+            for entry in os.scandir(path):
+                try:
+                    if entry.is_file(follow_symlinks=False):
+                        total += entry.stat().st_size
+                    elif entry.is_dir(follow_symlinks=False):
+                        total += CacheManager._dir_size(Path(entry.path))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return total
+
+    @staticmethod
+    def format_size(bytes_val: int) -> str:
+        if bytes_val >= 1024**3:
+            return f"{bytes_val / (1024**3):.2f} GB"
+        elif bytes_val >= 1024**2:
+            return f"{bytes_val / (1024**2):.1f} MB"
+        elif bytes_val >= 1024:
+            return f"{bytes_val / 1024:.0f} KB"
+        return f"{bytes_val} B"
+
+    def scan_all_caches(self) -> Dict[str, Any]:
+        """Fast synchronous introspection of all cache categories (< 150ms)."""
+        pacman_total = self._dir_size(self.PACMAN_CACHE_DIR)
+        
+        # Determine reclaimable pacman cache via paccache dry-run if available
+        pacman_reclaimable = 0
+        if shutil.which("paccache") and pacman_total > 0:
+            try:
+                proc = subprocess.run(["paccache", "-d", "-k1"], capture_output=True, text=True, timeout=4)
+                m = re.search(r'disk space saved:\s*([0-9.]+)\s*([A-Za-z]+)', proc.stdout)
+                if m:
+                    val = float(m.group(1))
+                    unit = m.group(2).lower()
+                    if "gib" in unit or "gb" in unit:
+                        pacman_reclaimable = int(val * (1024**3))
+                    elif "mib" in unit or "mb" in unit:
+                        pacman_reclaimable = int(val * (1024**2))
+                    elif "kib" in unit or "kb" in unit:
+                        pacman_reclaimable = int(val * 1024)
+            except Exception:
+                pass
+        if pacman_reclaimable == 0 and pacman_total > 0:
+            pacman_reclaimable = int(pacman_total * 0.5)
+
+        paru_size = self._dir_size(self.PARU_CACHE_DIR)
+        yay_size = self._dir_size(self.YAY_CACHE_DIR)
+        aur_total = paru_size + yay_size
+
+        aura_total = self._dir_size(self.AURA_CACHE_DIR)
+
+        docker_reclaimable = 0
+        if shutil.which("docker"):
+            try:
+                proc = subprocess.run(["docker", "system", "df", "--format", "{{json .}}"], capture_output=True, text=True, timeout=4)
+                if proc.returncode == 0:
+                    for line in proc.stdout.splitlines():
+                        try:
+                            data = json.loads(line)
+                            reclaimable_str = data.get("Reclaimable", "0B")
+                            m = re.search(r'([0-9.]+)\s*([A-Za-z]+)', reclaimable_str)
+                            if m:
+                                val = float(m.group(1))
+                                unit = m.group(2).lower()
+                                if "gb" in unit:
+                                    docker_reclaimable += int(val * (1024**3))
+                                elif "mb" in unit:
+                                    docker_reclaimable += int(val * (1024**2))
+                                elif "kb" in unit:
+                                    docker_reclaimable += int(val * 1024)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        journal_total = 0
+        if shutil.which("journalctl"):
+            try:
+                proc = subprocess.run(["journalctl", "--disk-usage"], capture_output=True, text=True, timeout=3)
+                m = re.search(r'take up\s*([0-9.]+)\s*([A-Za-z]+)', proc.stdout)
+                if m:
+                    val = float(m.group(1))
+                    unit = m.group(2).lower()
+                    if "gb" in unit or "g" in unit:
+                        journal_total = int(val * (1024**3))
+                    elif "mb" in unit or "m" in unit:
+                        journal_total = int(val * (1024**2))
+                    elif "kb" in unit or "k" in unit:
+                        journal_total = int(val * 1024)
+            except Exception:
+                pass
+
+        try:
+            disk_total, disk_used, disk_free = shutil.disk_usage("/")
+        except Exception:
+            disk_total, disk_used, disk_free = (0, 0, 0)
+
+        total_reclaimable = pacman_reclaimable + aur_total + docker_reclaimable + max(0, journal_total - 20*1024*1024)
+
+        return {
+            "categories": {
+                "pacman": {
+                    "name": "Pacman Package Cache",
+                    "total_bytes": pacman_total,
+                    "reclaimable_bytes": pacman_reclaimable,
+                    "total_str": self.format_size(pacman_total),
+                    "reclaimable_str": self.format_size(pacman_reclaimable),
+                    "desc": "Arch Linux package archives in /var/cache/pacman/pkg. Safe prune retains current installed versions for instant offline rollback.",
+                    "requires_root": True,
+                    "icon": "package-x-generic-symbolic",
+                    "color": "#0a84ff",
+                },
+                "aur": {
+                    "name": "AUR Build Cache",
+                    "total_bytes": aur_total,
+                    "reclaimable_bytes": aur_total,
+                    "total_str": self.format_size(aur_total),
+                    "reclaimable_str": self.format_size(aur_total),
+                    "desc": "Compiled package tarballs and git clone checkouts in ~/.cache/paru and ~/.cache/yay. 100% safe to clear.",
+                    "requires_root": False,
+                    "icon": "folder-download-symbolic",
+                    "color": "#ff9f0a",
+                },
+                "docker": {
+                    "name": "Docker Container Cache",
+                    "total_bytes": docker_reclaimable,
+                    "reclaimable_bytes": docker_reclaimable,
+                    "total_str": self.format_size(docker_reclaimable),
+                    "reclaimable_str": self.format_size(docker_reclaimable),
+                    "desc": "Unused container layers, dangling images, and stopped container artifacts.",
+                    "requires_root": False,
+                    "icon": "docker-symbolic",
+                    "color": "#30d158",
+                },
+                "journal": {
+                    "name": "Systemd Journal Logs",
+                    "total_bytes": journal_total,
+                    "reclaimable_bytes": max(0, journal_total - 20*1024*1024),
+                    "total_str": self.format_size(journal_total),
+                    "reclaimable_str": self.format_size(max(0, journal_total - 20*1024*1024)),
+                    "desc": "System log archives. Vacuuming retains the last 7 days of service and boot diagnostic logs.",
+                    "requires_root": True,
+                    "icon": "text-x-generic-symbolic",
+                    "color": "#bf5af2",
+                },
+                "aura": {
+                    "name": "Aura Application Cache",
+                    "total_bytes": aura_total,
+                    "reclaimable_bytes": aura_total,
+                    "total_str": self.format_size(aura_total),
+                    "reclaimable_str": self.format_size(aura_total),
+                    "desc": "Aura database sync cache and cached vector application icons.",
+                    "requires_root": False,
+                    "icon": "preferences-system-symbolic",
+                    "color": "#64d2ff",
+                },
+            },
+            "total_reclaimable_bytes": total_reclaimable,
+            "total_reclaimable_str": self.format_size(total_reclaimable),
+            "disk_total_bytes": disk_total,
+            "disk_free_bytes": disk_free,
+            "disk_used_bytes": disk_used,
+            "disk_free_str": self.format_size(disk_free),
+            "disk_total_str": self.format_size(disk_total),
+        }
+
+    def prune_cache(self, category: str, safe_mode: bool = True, progress_cb=None, complete_cb=None):
+        """Prune specific cache category in background thread."""
+        def _task():
+            env = os.environ.copy()
+            if ASKPASS_SCRIPT.exists():
+                env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
+            env["LC_ALL"] = "C"
+
+            success = True
+            msg = "Cleaned."
+
+            try:
+                if category == "pacman":
+                    if progress_cb:
+                        progress_cb(0.3, "Pruning pacman package archives...")
+                    if shutil.which("paccache") and safe_mode:
+                        res = subprocess.run(["sudo", "-A", "paccache", "-rk1"], capture_output=True, text=True, env=env, timeout=120)
+                    else:
+                        res = subprocess.run(["sudo", "-A", "pacman", "-Sc", "--noconfirm"], capture_output=True, text=True, env=env, timeout=120)
+                    success = (res.returncode == 0)
+                    msg = "Pacman package cache safely pruned (latest versions kept)." if success else (res.stderr or "Prune failed")
+                elif category == "aur":
+                    if progress_cb:
+                        progress_cb(0.3, "Clearing AUR build repositories...")
+                    for path in (self.PARU_CACHE_DIR, self.YAY_CACHE_DIR):
+                        if path.exists():
+                            for child in path.iterdir():
+                                try:
+                                    if child.is_dir():
+                                        shutil.rmtree(child, ignore_errors=True)
+                                    else:
+                                        child.unlink(missing_ok=True)
+                                except Exception:
+                                    pass
+                    msg = "AUR build artifacts and git trees purged."
+                elif category == "docker":
+                    if progress_cb:
+                        progress_cb(0.3, "Pruning unused Docker system objects...")
+                    if shutil.which("docker"):
+                        cmd = ["docker", "system", "prune", "-f"] if safe_mode else ["docker", "system", "prune", "-a", "-f"]
+                        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                        success = (res.returncode == 0)
+                        msg = "Docker unused layers and containers pruned." if success else (res.stderr or "Docker prune failed")
+                    else:
+                        msg = "Docker is not installed."
+                elif category == "journal":
+                    if progress_cb:
+                        progress_cb(0.3, "Vacuuming systemd journal archives...")
+                    res = subprocess.run(["sudo", "-A", "journalctl", "--vacuum-time=7d"], capture_output=True, text=True, env=env, timeout=60)
+                    success = (res.returncode == 0)
+                    msg = "Systemd journals vacuumed to last 7 days." if success else (res.stderr or "Journal vacuum failed")
+                elif category == "aura":
+                    if progress_cb:
+                        progress_cb(0.3, "Purging Aura sync index cache...")
+                    for p in (CACHE_FILE, UPDATES_CACHE_FILE):
+                        try:
+                            if p.exists():
+                                p.unlink()
+                        except Exception:
+                            pass
+                    msg = "Aura local database cache cleared."
+                else:
+                    success = False
+                    msg = f"Unknown cache category: {category}"
+            except Exception as e:
+                success = False
+                msg = str(e)
+
+            if progress_cb:
+                progress_cb(1.0, msg)
+            if complete_cb:
+                complete_cb(success, msg)
+
+        threading.Thread(target=_task, daemon=True).start()
+
+    def prune_all_selected(self, categories: List[str], safe_mode: bool = True, progress_cb=None, complete_cb=None):
+        """Prune multiple selected categories sequentially with aggregate progress."""
+        def _task():
+            total = len(categories)
+            cleaned = []
+            for i, cat in enumerate(categories):
+                pct = i / max(1, total)
+                if progress_cb:
+                    progress_cb(pct, f"Cleaning {cat}...")
+                done_event = threading.Event()
+                cat_ok = True
+
+                def _on_done(ok, msg):
+                    nonlocal cat_ok
+                    cat_ok = ok
+                    done_event.set()
+
+                self.prune_cache(cat, safe_mode=safe_mode, complete_cb=_on_done)
+                done_event.wait(timeout=180)
+                if cat_ok:
+                    cleaned.append(cat)
+
+            if progress_cb:
+                progress_cb(1.0, f"Cleaned {len(cleaned)} of {total} cache categories.")
+            if complete_cb:
+                complete_cb(len(cleaned) > 0, f"Successfully cleaned {', '.join(cleaned)}.")
+
+        threading.Thread(target=_task, daemon=True).start()
 

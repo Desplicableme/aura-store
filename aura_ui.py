@@ -1396,24 +1396,51 @@ flowboxchild:hover {
     box-shadow: none;
 }
 
-/* Detail Page Update Banner */
+/* Detail Page Update Banner (Modern Glassmorphic Card) */
 .mac-update-banner {
-    background: rgba(255, 159, 10, 0.12);
+    background: linear-gradient(135deg, rgba(255, 159, 10, 0.14) 0%, rgba(255, 159, 10, 0.04) 100%);
+    border: 1px solid rgba(255, 159, 10, 0.28);
+    border-radius: 16px;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    transition: all 180ms ease;
+}
+
+.mac-update-banner:hover {
+    border-color: rgba(255, 159, 10, 0.42);
+    box-shadow: 0 6px 24px rgba(255, 159, 10, 0.15);
+}
+
+.mac-update-badge-icon {
+    min-width: 38px;
+    min-height: 38px;
+    border-radius: 11px;
+    background: rgba(255, 159, 10, 0.18);
     border: 1px solid rgba(255, 159, 10, 0.35);
-    border-radius: 12px;
-    padding: 10px 14px;
-    margin-bottom: 12px;
+    color: #ff9f0a;
 }
 
 .mac-update-banner-title {
     font-size: 13.5px;
     font-weight: 700;
-    color: #ff9f0a;
+    color: #ffffff;
+}
+
+.mac-update-version-pill {
+    background: rgba(255, 159, 10, 0.16);
+    border: 1px solid rgba(255, 159, 10, 0.32);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #ffb340;
 }
 
 .mac-update-banner-sub {
     font-size: 12px;
-    color: #d1d1d6;
+    color: #a1a1a6;
+    margin-top: 2px;
 }
 
 /* Modern Search Filter Pills & Glass Search Bar */
@@ -2093,7 +2120,7 @@ class MacHeroCarousel(Gtk.Overlay):
         left_col.set_hexpand(True)
         left_col.set_valign(Gtk.Align.CENTER)
         left_col.set_halign(Gtk.Align.START)
-        left_col.set_margin_start(56)
+        left_col.set_margin_start(64)
 
         tag_lbl = Gtk.Label(label=slide.get("tag", "FEATURED"))
         tag_lbl.add_css_class("mac-hero-tag")
@@ -2112,7 +2139,7 @@ class MacHeroCarousel(Gtk.Overlay):
         sub_lbl.set_wrap(True)
         sub_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         sub_lbl.set_lines(2)
-        sub_lbl.set_max_width_chars(52)
+        sub_lbl.set_max_width_chars(44)
         sub_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         left_col.append(sub_lbl)
 
@@ -2150,7 +2177,7 @@ class MacHeroCarousel(Gtk.Overlay):
         right_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         right_col.set_valign(Gtk.Align.CENTER)
         right_col.set_halign(Gtk.Align.END)
-        right_col.set_margin_end(56)
+        right_col.set_margin_end(64)
 
         icon_box = Gtk.Box()
         icon_box.add_css_class("mac-hero-squircle")
@@ -2352,8 +2379,8 @@ class AuraWindow(Adw.ApplicationWindow):
         # Responsive Breakpoints for multi-column grids (calibrated with 232px sidebar):
         # Fullscreen / Ultra-wide (>= 1580px): 4 columns
         # Wide (1220px - 1579px): 3 columns
-        # Standard Window (860px - 1219px): 2 columns
-        # Compact (< 860px): 1 column
+        # Standard Window (900px - 1219px): 2 columns
+        # Compact (< 900px): 1 column
         bp_ultrawide = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 1580px'))
         bp_ultrawide.connect('apply', lambda b: self._set_grid_cols(4))
         bp_ultrawide.connect('unapply', lambda b: self._sync_responsive_cols())
@@ -2364,12 +2391,12 @@ class AuraWindow(Adw.ApplicationWindow):
         bp_wide.connect('unapply', lambda b: self._sync_responsive_cols())
         self.add_breakpoint(bp_wide)
 
-        bp_standard = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 860px and max-width: 1219px'))
+        bp_standard = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 900px and max-width: 1219px'))
         bp_standard.connect('apply', lambda b: self._set_grid_cols(2))
         bp_standard.connect('unapply', lambda b: self._sync_responsive_cols())
         self.add_breakpoint(bp_standard)
 
-        bp_compact = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('max-width: 859px'))
+        bp_compact = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('max-width: 899px'))
         bp_compact.connect('apply', lambda b: self._set_grid_cols(1))
         bp_compact.connect('unapply', lambda b: self._sync_responsive_cols())
         self.add_breakpoint(bp_compact)
@@ -2392,7 +2419,7 @@ class AuraWindow(Adw.ApplicationWindow):
             self._set_grid_cols(4)
         elif content_w >= 940:
             self._set_grid_cols(3)
-        elif content_w >= 560:
+        elif content_w >= 660:
             self._set_grid_cols(2)
         else:
             self._set_grid_cols(1)
@@ -2415,9 +2442,9 @@ class AuraWindow(Adw.ApplicationWindow):
             return 4
         elif content_w >= 940:
             return 3
-        elif content_w >= 560:
+        elif content_w >= 660:
             return 2
-        elif 0 < content_w < 560:
+        elif 0 < content_w < 660:
             return 1
         return getattr(self, "_active_cols", 2)
 
@@ -4699,6 +4726,9 @@ class AuraWindow(Adw.ApplicationWindow):
         page_subtitle = Gtk.Label(label="Review disk usage, package caches, build artifacts, and reclaim storage safely")
         page_subtitle.add_css_class("mac-page-subtitle")
         page_subtitle.set_halign(Gtk.Align.START)
+        page_subtitle.set_wrap(True)
+        page_subtitle.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        page_subtitle.set_max_width_chars(50)
         title_box.append(page_subtitle)
         box.append(title_box)
 
@@ -4715,6 +4745,7 @@ class AuraWindow(Adw.ApplicationWindow):
         disk_title.add_css_class("mac-spotlight-title")
         disk_title.set_halign(Gtk.Align.START)
         disk_title.set_ellipsize(Pango.EllipsizeMode.END)
+        disk_title.set_max_width_chars(25)
         card_header.append(disk_title)
 
         self.storage_disk_summary_lbl = Gtk.Label(label="Calculating disk usage...")
@@ -4722,6 +4753,7 @@ class AuraWindow(Adw.ApplicationWindow):
         self.storage_disk_summary_lbl.set_halign(Gtk.Align.END)
         self.storage_disk_summary_lbl.set_hexpand(True)
         self.storage_disk_summary_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        self.storage_disk_summary_lbl.set_max_width_chars(28)
         card_header.append(self.storage_disk_summary_lbl)
         storage_card.append(card_header)
 
@@ -4779,6 +4811,10 @@ class AuraWindow(Adw.ApplicationWindow):
         self.lbl_aura_size = Gtk.Label(label="Aura App: --")
         self.lbl_free_size = Gtk.Label(label="Free: --")
 
+        for lbl in (self.lbl_pacman_size, self.lbl_aur_size, self.lbl_docker_size, self.lbl_journal_size, self.lbl_aura_size, self.lbl_free_size):
+            lbl.set_ellipsize(Pango.EllipsizeMode.END)
+            lbl.set_max_width_chars(16)
+
         def _make_legend_item(color: str, label_widget: Gtk.Label) -> Gtk.Box:
             item_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
             dot = Gtk.Box()
@@ -4816,6 +4852,7 @@ class AuraWindow(Adw.ApplicationWindow):
         self.lbl_reclaimable_total.add_css_class("mac-spotlight-title")
         self.lbl_reclaimable_total.set_halign(Gtk.Align.START)
         self.lbl_reclaimable_total.set_ellipsize(Pango.EllipsizeMode.END)
+        self.lbl_reclaimable_total.set_max_width_chars(28)
         rec_info_box.append(self.lbl_reclaimable_total)
 
         rec_sub = Gtk.Label(label="Safe pruning retains current installed packages for offline rollback while cleaning unneeded archives.")
@@ -4823,6 +4860,7 @@ class AuraWindow(Adw.ApplicationWindow):
         rec_sub.set_halign(Gtk.Align.START)
         rec_sub.set_wrap(True)
         rec_sub.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        rec_sub.set_max_width_chars(42)
         rec_sub.set_ellipsize(Pango.EllipsizeMode.END)
         rec_info_box.append(rec_sub)
         reclaim_card.append(rec_info_box)
@@ -4849,7 +4887,11 @@ class AuraWindow(Adw.ApplicationWindow):
         self.cache_action_buttons: Dict[str, Gtk.Button] = {}
         box.append(self.cache_rows_box)
 
-        scrolled.set_child(box)
+        clamp = Adw.Clamp()
+        clamp.set_maximum_size(860)
+        clamp.set_tightening_threshold(640)
+        clamp.set_child(box)
+        scrolled.set_child(clamp)
         return scrolled
 
     def _load_storage_view(self):
@@ -4902,7 +4944,7 @@ class AuraWindow(Adw.ApplicationWindow):
         def _calc_px(bytes_val: int) -> int:
             if bytes_val <= 0:
                 return 0
-            return max(8, min(140, int(bytes_val / (1024**3) * 15)))
+            return max(8, min(60, int(bytes_val / (1024**3) * 8)))
 
         self.seg_pacman.set_size_request(_calc_px(pacman_info.get("reclaimable_bytes", 0)), 16)
         self.seg_aur.set_size_request(_calc_px(aur_info.get("reclaimable_bytes", 0)), 16)
@@ -4949,6 +4991,7 @@ class AuraWindow(Adw.ApplicationWindow):
         title_lbl.add_css_class("mac-app-title")
         title_lbl.set_halign(Gtk.Align.START)
         title_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        title_lbl.set_max_width_chars(25)
         info_col.append(title_lbl)
 
         desc_lbl = Gtk.Label(label=cat_data.get("desc", ""))
@@ -4957,6 +5000,7 @@ class AuraWindow(Adw.ApplicationWindow):
         desc_lbl.set_wrap(True)
         desc_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         desc_lbl.set_lines(2)
+        desc_lbl.set_max_width_chars(38)
         desc_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         info_col.append(desc_lbl)
         row.append(info_col)
@@ -4972,12 +5016,14 @@ class AuraWindow(Adw.ApplicationWindow):
         size_lbl.add_css_class("mac-app-title")
         size_lbl.set_halign(Gtk.Align.END)
         size_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        size_lbl.set_max_width_chars(20)
         size_col.append(size_lbl)
 
         tot_lbl = Gtk.Label(label=f"{tot_str} on disk")
         tot_lbl.add_css_class("dim-label")
         tot_lbl.set_halign(Gtk.Align.END)
         tot_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        tot_lbl.set_max_width_chars(20)
         size_col.append(tot_lbl)
         row.append(size_col)
 
@@ -5219,27 +5265,51 @@ class AuraWindow(Adw.ApplicationWindow):
         self.detail_update_banner.set_visible(False)
 
         up_banner_icon_box = Gtk.Box()
+        up_banner_icon_box.add_css_class("mac-update-badge-icon")
         up_banner_icon_box.set_valign(Gtk.Align.CENTER)
+        up_banner_icon_box.set_halign(Gtk.Align.CENTER)
+        up_banner_icon_box.set_size_request(38, 38)
         up_banner_icon = Gtk.Image.new_from_icon_name("feather-refresh-cw-symbolic")
-        up_banner_icon.set_pixel_size(20)
+        up_banner_icon.set_pixel_size(18)
+        up_banner_icon.set_halign(Gtk.Align.CENTER)
+        up_banner_icon.set_valign(Gtk.Align.CENTER)
         up_banner_icon_box.append(up_banner_icon)
         self.detail_update_banner.append(up_banner_icon_box)
 
-        up_text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        up_text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         up_text_box.set_hexpand(True)
         up_text_box.set_valign(Gtk.Align.CENTER)
 
-        self.detail_update_banner_title = Gtk.Label(label="⚡ Update Available")
+        up_title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        up_title_row.set_valign(Gtk.Align.CENTER)
+        self.detail_update_banner_title = Gtk.Label(label="Update Available")
         self.detail_update_banner_title.add_css_class("mac-update-banner-title")
         self.detail_update_banner_title.set_halign(Gtk.Align.START)
-        up_text_box.append(self.detail_update_banner_title)
+        up_title_row.append(self.detail_update_banner_title)
+
+        self.detail_update_banner_pill = Gtk.Label(label="")
+        self.detail_update_banner_pill.add_css_class("mac-update-version-pill")
+        self.detail_update_banner_pill.set_valign(Gtk.Align.CENTER)
+        up_title_row.append(self.detail_update_banner_pill)
+        up_text_box.append(up_title_row)
 
         self.detail_update_banner_sub = Gtk.Label(label="A newer version of this software is ready to install.")
         self.detail_update_banner_sub.add_css_class("mac-update-banner-sub")
         self.detail_update_banner_sub.set_halign(Gtk.Align.START)
+        self.detail_update_banner_sub.set_wrap(True)
+        self.detail_update_banner_sub.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        self.detail_update_banner_sub.set_max_width_chars(50)
         up_text_box.append(self.detail_update_banner_sub)
 
         self.detail_update_banner.append(up_text_box)
+
+        # Inline Action Button inside the Update Card
+        self.btn_banner_update = Gtk.Button(label="Update Now")
+        self.btn_banner_update.add_css_class("mac-btn-update")
+        self.btn_banner_update.set_valign(Gtk.Align.CENTER)
+        self.btn_banner_update.set_size_request(114, 34)
+        self.detail_update_banner.append(self.btn_banner_update)
+
         about_card.append(self.detail_update_banner)
 
         about_hdr = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -5679,17 +5749,32 @@ class AuraWindow(Adw.ApplicationWindow):
         if up_item:
             old_ver = up_item.get("old_ver", installed_ver or "")
             new_ver = up_item.get("new_ver", ver or "")
-            self.detail_update_banner_title.set_text(f"⚡ Update Available: v{old_ver} → v{new_ver}")
+            self.detail_update_banner_title.set_text("Update Available")
+            self.detail_update_banner_pill.set_text(f"v{old_ver} → v{new_ver}")
+            self.detail_update_banner_pill.set_visible(True)
             self.detail_update_banner_sub.set_text("A newer version of this software is ready to install.")
+            self.btn_banner_update.set_label("Update Now")
+            self.btn_banner_update.set_sensitive(True)
+            self.btn_banner_update.set_visible(True)
             self.detail_update_banner.set_visible(True)
 
-            # Connect update action
+            # Connect update action to detail button
             if hasattr(self, "_btn_update_sig") and self._btn_update_sig:
                 try:
                     self.btn_detail_update.disconnect(self._btn_update_sig)
                 except Exception:
                     pass
             self._btn_update_sig = self.btn_detail_update.connect(
+                "clicked", lambda b, n=name, s=source: self._update_single_package(n, s)
+            )
+
+            # Connect update action to banner button
+            if hasattr(self, "_btn_banner_update_sig") and self._btn_banner_update_sig:
+                try:
+                    self.btn_banner_update.disconnect(self._btn_banner_update_sig)
+                except Exception:
+                    pass
+            self._btn_banner_update_sig = self.btn_banner_update.connect(
                 "clicked", lambda b, n=name, s=source: self._update_single_package(n, s)
             )
         else:
@@ -5708,6 +5793,10 @@ class AuraWindow(Adw.ApplicationWindow):
             self.progress_bar.set_fraction(prog)
             self.progress_status_label.set_text(msg or ("Updating..." if up_item else "Installing..."))
             self.progress_percent_label.set_text(f"{int(prog * 100)}%")
+
+            if hasattr(self, "btn_banner_update"):
+                self.btn_banner_update.set_label("UPDATING...")
+                self.btn_banner_update.set_sensitive(False)
 
             self.btn_detail_launch.set_visible(False)
             if hasattr(self, "btn_detail_update"):

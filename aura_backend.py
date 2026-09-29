@@ -2204,6 +2204,8 @@ class PackageManager:
         with self._action_lock:
             if not self.active_transaction:
                 return False
+            if self.active_transaction.get("is_completed"):
+                return False
             tx_pkg = (self.active_transaction.get("pkg_name") or "").strip().lower()
             if tx_pkg == target:
                 return True
@@ -3191,14 +3193,8 @@ class PackageManager:
         """Pops and executes the next pending action from the queue, or resets active_transaction if empty."""
         with self._action_lock:
             if not self._pending_actions:
-                target_tx = self.active_transaction
-                def _clear():
-                    time.sleep(0.8)
-                    with self._action_lock:
-                        if self.active_transaction is target_tx:
-                            self.active_transaction = None
-                            self._last_progress = 0.0
-                threading.Thread(target=_clear, daemon=True).start()
+                self.active_transaction = None
+                self._last_progress = 0.0
                 return
 
             # Atomically pop and initialize next active_transaction so is_busy stays True
@@ -3363,6 +3359,7 @@ class PackageManager:
                                     self.active_transaction["progress"] = 1.0
                                     self.active_transaction["status"] = comp_msg
                                     self.active_transaction["status_msg"] = comp_msg
+                                    self.active_transaction["is_completed"] = True
                             self._last_progress = 1.0
                             progress_cb(1.0, comp_msg)
                             try:
@@ -3375,6 +3372,7 @@ class PackageManager:
                                     self.active_transaction["progress"] = 0.0
                                     self.active_transaction["status"] = f"Failed: {err}"
                                     self.active_transaction["status_msg"] = f"Failed: {err}"
+                                    self.active_transaction["is_completed"] = True
                                 self.active_transaction = None
                                 self._last_progress = 0.0
                             progress_cb(0.0, f"Failed: {err}")
@@ -3412,6 +3410,7 @@ class PackageManager:
                                     self.active_transaction["progress"] = 1.0
                                     self.active_transaction["status"] = comp_msg
                                     self.active_transaction["status_msg"] = comp_msg
+                                    self.active_transaction["is_completed"] = True
                             self._last_progress = 1.0
                             progress_cb(1.0, comp_msg)
                             try:
@@ -3424,6 +3423,7 @@ class PackageManager:
                                     self.active_transaction["progress"] = 0.0
                                     self.active_transaction["status"] = f"Failed: {msg}"
                                     self.active_transaction["status_msg"] = f"Failed: {msg}"
+                                    self.active_transaction["is_completed"] = True
                                 self.active_transaction = None
                                 self._last_progress = 0.0
                             progress_cb(0.0, f"Failed: {msg}")
@@ -3450,10 +3450,10 @@ class PackageManager:
                         else:
                             cmd = ["sudo", "-A", "pacman", "-Syu", "--noconfirm"]
                     else:
-                        if source == "aur":
+                        if source == "aur" or shutil.which("paru"):
                             cmd = ["paru", "-S", "--noconfirm", "--sudoflags", "-A", pkg_name]
                         else:
-                            cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", pkg_name]
+                            cmd = ["sudo", "-A", "pacman", "-Sy", "--noconfirm", pkg_name]
                 elif action == "install":
                     if source == "pacman":
                         cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", "--needed", pkg_name]
@@ -3526,6 +3526,7 @@ class PackageManager:
                             self.active_transaction["current_pkg"] = None
                             self.active_transaction["current_idx"] = parser.current_idx
                             self.active_transaction["total_packages"] = parser.total_packages
+                            self.active_transaction["is_completed"] = True
                     self._last_progress = 1.0
                     progress_cb(1.0, comp_msg)
                     # Background check for remaining updates
@@ -3544,6 +3545,7 @@ class PackageManager:
                             self.active_transaction["progress"] = 0.0
                             self.active_transaction["status"] = err_status
                             self.active_transaction["status_msg"] = err_status
+                            self.active_transaction["is_completed"] = True
                         self.active_transaction = None
                         self._last_progress = 0.0
                     progress_cb(0.0, err_status)

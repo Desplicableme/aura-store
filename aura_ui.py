@@ -2187,10 +2187,15 @@ class MacHeroCarousel(Gtk.Overlay):
         action_btn.set_size_request(88, 32)
         action_btn.set_valign(Gtk.Align.CENTER)
         action_btn.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
-        action_btn.connect(
-            "clicked",
-            lambda b, sid=slide["id"], ssrc=slide.get("source", "pacman"): self._open_detail(sid, ssrc)
-        )
+        def _on_hero_action_clicked(b, sid=slide["id"], ssrc=slide.get("source", "pacman")):
+            if hasattr(self.aura_window, "pm") and self.aura_window.pm.is_installed(sid):
+                if self.aura_window.pm.detect_desktop_entry(sid):
+                    self.aura_window._open_or_launch(sid, ssrc)
+                else:
+                    self._open_detail(sid, ssrc)
+            else:
+                self.aura_window._install_from_card(sid, ssrc, action_btn)
+        action_btn.connect("clicked", _on_hero_action_clicked)
         btn_box.append(action_btn)
         left_col.append(btn_box)
 
@@ -2222,12 +2227,16 @@ class MacHeroCarousel(Gtk.Overlay):
 
         slide_overlay.add_overlay(content_box)
 
-        # Clicking anywhere on the slide opens package detail
+        # Clicking anywhere on the slide opens package detail (ignoring clicks on action_btn)
         gesture = Gtk.GestureClick()
-        gesture.connect(
-            "released",
-            lambda g, n, x, y, sid=slide["id"], ssrc=slide.get("source", "pacman"): self._open_detail(sid, ssrc)
-        )
+        def _on_slide_click(g, n, x, y, sid=slide["id"], ssrc=slide.get("source", "pacman")):
+            alloc = action_btn.compute_bounds(slide_overlay)
+            if alloc[0]:
+                rect = alloc[1]
+                if rect.x <= x <= rect.x + rect.width and rect.y <= y <= rect.y + rect.height:
+                    return
+            self._open_detail(sid, ssrc)
+        gesture.connect("released", _on_slide_click)
         slide_overlay.add_controller(gesture)
         slide_overlay.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
 
@@ -2525,7 +2534,8 @@ class AuraWindow(Adw.ApplicationWindow):
                         btn.remove_css_class("mac-btn-open")
                         btn.remove_css_class("mac-btn-installed")
                         btn.remove_css_class("mac-btn-update")
-                        btn.add_css_class("mac-btn-get")
+                        if not btn.has_css_class("mac-btn-get"):
+                            btn.add_css_class("mac-btn-get")
                         btn.set_sensitive(False)
                     elif hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(name):
                         btn.set_label("QUEUED")
@@ -2533,23 +2543,35 @@ class AuraWindow(Adw.ApplicationWindow):
                         btn.remove_css_class("mac-btn-open")
                         btn.remove_css_class("mac-btn-installed")
                         btn.remove_css_class("mac-btn-update")
-                        btn.add_css_class("mac-btn-queued")
+                        if not btn.has_css_class("mac-btn-queued"):
+                            btn.add_css_class("mac-btn-queued")
                         btn.set_sensitive(False)
-                    elif btn.get_label() in ("QUEUED", "INSTALLING...", "UPDATING..."):
+                    else:
                         btn.remove_css_class("mac-btn-queued")
-                        if self.pm.is_installed(name):
-                            if self.pm.detect_desktop_entry(name):
-                                btn.set_label("OPEN")
-                                btn.remove_css_class("mac-btn-get")
-                                btn.add_css_class("mac-btn-open")
-                            else:
-                                btn.set_label("INSTALLED")
-                                btn.remove_css_class("mac-btn-get")
-                                btn.add_css_class("mac-btn-installed")
+                        is_upgradable = any(u.get("name") == name for u in getattr(self.pm, "upgradable_list", []))
+                        if is_upgradable:
+                            btn.set_label("UPDATE")
+                            btn.remove_css_class("mac-btn-get")
+                            btn.remove_css_class("mac-btn-installed")
+                            btn.remove_css_class("mac-btn-open")
+                            if not btn.has_css_class("mac-btn-update"):
+                                btn.add_css_class("mac-btn-update")
+                            btn.set_sensitive(True)
+                        elif self.pm.is_installed(name):
+                            has_desktop = bool(self.pm.detect_desktop_entry(name))
+                            btn.set_label("OPEN" if has_desktop else "INSTALLED")
+                            btn.remove_css_class("mac-btn-get")
+                            btn.remove_css_class("mac-btn-update")
+                            btn.remove_css_class("mac-btn-installed" if has_desktop else "mac-btn-open")
+                            btn.add_css_class("mac-btn-open" if has_desktop else "mac-btn-installed")
                             btn.set_sensitive(True)
                         else:
                             btn.set_label("GET")
-                            btn.add_css_class("mac-btn-get")
+                            btn.remove_css_class("mac-btn-open")
+                            btn.remove_css_class("mac-btn-installed")
+                            btn.remove_css_class("mac-btn-update")
+                            if not btn.has_css_class("mac-btn-get"):
+                                btn.add_css_class("mac-btn-get")
                             btn.set_sensitive(True)
                 child = child.get_next_sibling()
 
@@ -4745,11 +4767,20 @@ class AuraWindow(Adw.ApplicationWindow):
         publisher = snap.get("publisher", "Canonical")
         icon_target = snap.get("icon") or resolve_icon_name(name, summary)
 
+        is_inst = False
+        try:
+            if hasattr(self.pm, "snap_mgr") and self.pm.snap_mgr:
+                is_inst = self.pm.snap_mgr.is_snap_installed(name)
+        except Exception:
+            is_inst = False
+        has_desktop = is_inst and bool(self.pm.detect_desktop_entry(name))
+
         card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
         card.add_css_class("mac-app-row")
         card.add_css_class("mac-snap-card")
         card.set_hexpand(True)
         card.set_valign(Gtk.Align.FILL)
+        card.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
 
         # 1. 54x54 Squircle App Icon
         icon_box = Gtk.Box()
@@ -4759,6 +4790,16 @@ class AuraWindow(Adw.ApplicationWindow):
         icon_box.set_size_request(54, 54)
         icon_box.set_hexpand(False)
         icon_box.set_vexpand(False)
+        icon_box.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+
+        icon_gesture = Gtk.GestureClick()
+        def _on_icon_click(g, n_press, x, y, n=name):
+            if is_inst and has_desktop:
+                self._open_or_launch(n, "snap")
+            else:
+                self._open_package_detail(n, "snap")
+        icon_gesture.connect("released", _on_icon_click)
+        icon_box.add_controller(icon_gesture)
 
         img = create_scaled_image(icon_target, size=40)
         img.set_halign(Gtk.Align.CENTER)
@@ -4804,15 +4845,15 @@ class AuraWindow(Adw.ApplicationWindow):
         card.append(info_col)
 
         # 3. Action Button (GET / OPEN / INSTALLED)
-        is_inst = False
-        try:
-            if hasattr(self.pm, "snap_mgr") and self.pm.snap_mgr:
-                is_inst = self.pm.snap_mgr.is_snap_installed(name)
-        except Exception:
-            is_inst = False
-        has_desktop = is_inst and bool(self.pm.detect_desktop_entry(name))
-
-        if is_inst:
+        if hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name):
+            action_btn = Gtk.Button(label="INSTALLING...")
+            action_btn.add_css_class("mac-btn-get")
+            action_btn.set_sensitive(False)
+        elif hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(name):
+            action_btn = Gtk.Button(label="QUEUED")
+            action_btn.add_css_class("mac-btn-queued")
+            action_btn.set_sensitive(False)
+        elif is_inst:
             if has_desktop:
                 action_btn = Gtk.Button(label="OPEN")
                 action_btn.add_css_class("mac-btn-open")
@@ -4824,17 +4865,29 @@ class AuraWindow(Adw.ApplicationWindow):
         else:
             action_btn = Gtk.Button(label="GET")
             action_btn.add_css_class("mac-btn-get")
-            action_btn.connect("clicked", lambda b, n=name, s="snap": self._open_package_detail(n, s))
+            action_btn.connect("clicked", lambda b, n=name, s="snap": self._install_from_card(n, s, b))
 
         action_btn.set_valign(Gtk.Align.CENTER)
         action_btn.set_halign(Gtk.Align.END)
         action_btn.set_hexpand(False)
         action_btn.set_vexpand(False)
         action_btn.set_size_request(88, 32)
+        action_btn.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
         card.append(action_btn)
 
+        card._action_btn = action_btn
+        card._pkg_name = name
+        card._update_info = None
+
         gesture = Gtk.GestureClick()
-        gesture.connect("released", lambda g, n_press, x, y, n=name: self._open_package_detail(n, "snap"))
+        def _on_card_click(g, n_press, x, y, n=name):
+            alloc = action_btn.compute_bounds(card)
+            if alloc[0]:
+                rect = alloc[1]
+                if rect.x <= x <= rect.x + rect.width and rect.y <= y <= rect.y + rect.height:
+                    return
+            self._open_package_detail(n, "snap")
+        gesture.connect("released", _on_card_click)
         card.add_controller(gesture)
 
         return card
@@ -5659,6 +5712,16 @@ class AuraWindow(Adw.ApplicationWindow):
         icon_box.set_size_request(54, 54)
         icon_box.set_hexpand(False)
         icon_box.set_vexpand(False)
+        icon_box.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+
+        icon_gesture = Gtk.GestureClick()
+        def _on_icon_click(g, n_press, x, y, n=name, s=source):
+            if self.pm.is_installed(n) and self.pm.detect_desktop_entry(n):
+                self._open_or_launch(n, s)
+            else:
+                self._open_package_detail(n, s)
+        icon_gesture.connect("released", _on_icon_click)
+        icon_box.add_controller(icon_gesture)
 
         img = create_scaled_image(icon_target, size=40)
         img.set_halign(Gtk.Align.CENTER)
@@ -5749,22 +5812,31 @@ class AuraWindow(Adw.ApplicationWindow):
         else:
             action_btn = Gtk.Button(label="GET")
             action_btn.add_css_class("mac-btn-get")
-            action_btn.connect("clicked", lambda b, n=name, s=source: self._open_package_detail(n, s))
+            action_btn.connect("clicked", lambda b, n=name, s=source: self._install_from_card(n, s, b))
 
         action_btn.set_valign(Gtk.Align.CENTER)
         action_btn.set_halign(Gtk.Align.END)
         action_btn.set_hexpand(False)
         action_btn.set_vexpand(False)
         action_btn.set_size_request(88, 32)
+        action_btn.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
         card.append(action_btn)
 
         card._action_btn = action_btn
         card._pkg_name = name
         card._update_info = update_info
+        card.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
 
-        # Card Gesture Click opens full-page inspector
+        # Card Gesture Click opens full-page inspector (ignoring clicks on action_btn)
         gesture = Gtk.GestureClick()
-        gesture.connect("released", lambda g, n_press, x, y, n=name, s=source: self._open_package_detail(n, s))
+        def _on_card_click(g, n_press, x, y, n=name, s=source):
+            alloc = action_btn.compute_bounds(card)
+            if alloc[0]:
+                rect = alloc[1]
+                if rect.x <= x <= rect.x + rect.width and rect.y <= y <= rect.y + rect.height:
+                    return
+            self._open_package_detail(n, s)
+        gesture.connect("released", _on_card_click)
         card.add_controller(gesture)
 
         return card
@@ -6631,6 +6703,81 @@ class AuraWindow(Adw.ApplicationWindow):
 
             self._progress_auto_hide_id = GLib.timeout_add(4500, _auto_dismiss_err)
 
+    def _install_from_card(self, pkg_name: str, source: str = "pacman", btn: Optional[Gtk.Button] = None):
+        """Install package directly when user clicks GET from any card in the store."""
+        disp = get_app_display_name(pkg_name)
+        is_upgradable = any(u.get("name") == pkg_name for u in getattr(self.pm, "upgradable_list", []))
+        if is_upgradable:
+            self._update_single_package(pkg_name, source)
+            return
+
+        if self.pm.is_installed(pkg_name):
+            self._open_or_launch(pkg_name, source)
+            return
+
+        if source == "snap":
+            snap_st = self.pm.snap_mgr.get_status()
+            if snap_st["status_code"] != "ready":
+                self._open_package_detail(pkg_name, source)
+                return
+
+        if btn:
+            btn.set_sensitive(False)
+            btn.set_label("QUEUED")
+            btn.remove_css_class("mac-btn-get")
+            btn.add_css_class("mac-btn-queued")
+
+        def _on_prog(frac: float, msg: str):
+            def _ui_p():
+                if btn:
+                    if btn.get_label() == "QUEUED" and frac > 0.0:
+                        btn.set_label("INSTALLING...")
+                        btn.remove_css_class("mac-btn-queued")
+                        btn.add_css_class("mac-btn-get")
+                self._on_progress_update(frac, msg)
+                self._sync_all_cards()
+            GLib.idle_add(_ui_p)
+
+        def _on_done(ok: bool, action: str, name: str, err: str):
+            def _ui():
+                self._finish_smooth_progress(ok, action, name, err)
+                if ok:
+                    self.show_toast(f"Successfully installed {disp}!")
+                    self.pm.refresh_installed()
+                    self._cached_installed_apps_flow = None
+                    if btn:
+                        has_desktop = bool(self.pm.detect_desktop_entry(name))
+                        btn.set_label("OPEN" if has_desktop else "INSTALLED")
+                        btn.remove_css_class("mac-btn-get")
+                        btn.remove_css_class("mac-btn-queued")
+                        btn.add_css_class("mac-btn-open" if has_desktop else "mac-btn-installed")
+                        btn.set_sensitive(True)
+                    self._sync_all_cards()
+                else:
+                    if btn:
+                        btn.set_label("GET")
+                        btn.remove_css_class("mac-btn-queued")
+                        btn.add_css_class("mac-btn-get")
+                        btn.set_sensitive(True)
+                    self.show_toast(f"Installation failed: {err[:50]}")
+                    self._sync_all_cards()
+                GLib.timeout_add(300, lambda: self._sync_all_cards() or False)
+            GLib.idle_add(_ui)
+
+        res = self.pm.execute_background_action("install", pkg_name, source, _on_prog, _on_done)
+        if res == "queued":
+            pos = self.pm.get_queue_position(pkg_name)
+            self.show_toast(f"Added {disp} to installation queue (position #{pos})")
+            if btn:
+                btn.set_label("QUEUED")
+                btn.remove_css_class("mac-btn-get")
+                btn.add_css_class("mac-btn-queued")
+                btn.set_sensitive(False)
+            self._sync_all_cards()
+        else:
+            self._start_smooth_progress("install", pkg_name, display_name=disp, source=source, target_view="detail")
+            self._sync_all_cards()
+
     def _on_install_click(self):
         if not self._current_detail:
             return
@@ -6675,13 +6822,26 @@ class AuraWindow(Adw.ApplicationWindow):
                     self.show_toast(f"Successfully installed {disp}!")
                     self.pm.refresh_installed()
                     self._cached_installed_apps_flow = None
-                    GLib.timeout_add(1500, lambda: self._open_package_detail(pkg_name, source) or False)
+                    if hasattr(self, "btn_detail_install"):
+                        has_desktop = bool(self.pm.detect_desktop_entry(pkg_name))
+                        self.btn_detail_install.set_label("OPEN" if has_desktop else "INSTALLED")
+                        self.btn_detail_install.remove_css_class("mac-btn-queued")
+                        self.btn_detail_install.remove_css_class("mac-btn-primary-large")
+                        self.btn_detail_install.add_css_class("mac-btn-open" if has_desktop else "mac-btn-installed")
+                        self.btn_detail_install.set_sensitive(True)
+                    if hasattr(self, "btn_detail_launch"):
+                        self.btn_detail_launch.set_visible(bool(self.pm.detect_desktop_entry(pkg_name)))
+                    self._sync_all_cards()
+                    GLib.timeout_add(1000, lambda: self._open_package_detail(pkg_name, source) or False)
                 else:
                     self.btn_detail_install.set_sensitive(True)
                     self.btn_detail_install.remove_css_class("mac-btn-queued")
+                    self.btn_detail_install.remove_css_class("mac-btn-primary-large")
+                    self.btn_detail_install.add_css_class("mac-btn-get")
                     self.btn_detail_install.set_label("GET")
                     self.show_toast(f"Installation failed: {err[:50]}")
-                self._sync_all_cards()
+                    self._sync_all_cards()
+                GLib.timeout_add(300, lambda: self._sync_all_cards() or False)
             GLib.idle_add(_ui)
 
         res = self.pm.execute_background_action("install", name, source, _on_prog, _on_done)
@@ -6844,13 +7004,15 @@ class AuraWindow(Adw.ApplicationWindow):
                     self.pm.refresh_installed()
                     num_inst = len(self.pm.get_installed_desktop_apps())
                     self.sidebar_installed_badge.set_text(str(num_inst))
-                    self._cached_installed_apps_flow = None
                     self._populate_updates([])
+                    self._sync_all_cards()
                 else:
                     self.show_toast(f"System update error: {err[:50]}")
                     if hasattr(self, "btn_update_all"):
                         self.btn_update_all.set_sensitive(True)
                     self._sync_updates_ui_state()
+                    self._sync_all_cards()
+                GLib.timeout_add(300, lambda: self._sync_all_cards() or False)
             GLib.idle_add(_ui)
 
         self.pm.execute_background_action("update", "system", "pacman", _on_prog, _on_done)

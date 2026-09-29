@@ -3899,6 +3899,10 @@ class SnapManager:
         self.is_setting_up: bool = False
         self.setup_progress_text: str = ""
         self.setup_progress_fraction: float = 0.0
+        self._status_cache: Optional[Dict[str, Any]] = None
+        self._status_cache_time: float = 0.0
+        self._installed_snaps_cache: Optional[List[Dict[str, Any]]] = None
+        self._installed_snaps_cache_time: float = 0.0
 
     def is_snapd_installed(self) -> bool:
         """Check if snap command is available in PATH or at /usr/bin/snap."""
@@ -3916,8 +3920,14 @@ class SnapManager:
                 pass
         return False
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self, force_refresh: bool = False) -> Dict[str, Any]:
         """Check snap binary, systemd socket, and /snap symlink status."""
+        now = time.time()
+        if not force_refresh and hasattr(self, "_status_cache") and self._status_cache and (now - getattr(self, "_status_cache_time", 0.0) < 4.0):
+            res = dict(self._status_cache)
+            res["is_setting_up"] = self.is_setting_up
+            return res
+
         has_snap = self.is_snapd_installed()
         socket_active = self.is_snapd_running()
         symlink_ok = Path("/snap").is_symlink() or Path("/snap").exists()
@@ -3935,7 +3945,7 @@ class SnapManager:
             status_code = "missing"
             status_text = "Snapd is not installed on this system"
 
-        return {
+        res = {
             "has_snap": has_snap,
             "socket_active": socket_active,
             "symlink_ok": symlink_ok,
@@ -3943,6 +3953,9 @@ class SnapManager:
             "status_text": status_text,
             "is_setting_up": self.is_setting_up,
         }
+        self._status_cache = res
+        self._status_cache_time = now
+        return res
 
     @staticmethod
     def _parse_build_error(stderr: Optional[str], stdout: Optional[str]) -> str:
@@ -4101,6 +4114,8 @@ class SnapManager:
             finally:
                 with self._lock:
                     self.is_setting_up = False
+                    self._installed_snaps_cache = None
+                    self._status_cache = None
 
         threading.Thread(target=_task, daemon=True).start()
 
@@ -4126,6 +4141,8 @@ class SnapManager:
                 subprocess.run(["sudo", "-A", "pacman", "-Rns", "--noconfirm", "snapd"],
                                capture_output=True, env=env, timeout=60)
 
+            self._installed_snaps_cache = None
+            self._status_cache = None
             if completion_callback:
                 completion_callback(True, "Snap setup disabled successfully.")
 
@@ -4155,8 +4172,12 @@ class SnapManager:
             pass
         return False
 
-    def get_installed_snaps(self) -> List[Dict[str, Any]]:
+    def get_installed_snaps(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
         """List locally installed snaps by parsing 'snap list' output."""
+        now = time.time()
+        if not force_refresh and hasattr(self, "_installed_snaps_cache") and self._installed_snaps_cache is not None and (now - getattr(self, "_installed_snaps_cache_time", 0.0) < 6.0):
+            return list(self._installed_snaps_cache)
+
         if not self.is_snapd_installed():
             return []
         try:
@@ -4628,6 +4649,8 @@ class SnapManager:
 
                 proc.wait()
                 if proc.returncode == 0:
+                    self._installed_snaps_cache = None
+                    self._status_cache = None
                     self._call_progress(progress_cb, 1.0, f"Successfully installed {name}!")
                     self._call_complete(complete_cb, True, "install", name, "")
                 else:
@@ -4675,6 +4698,8 @@ class SnapManager:
 
                 proc.wait()
                 if proc.returncode == 0:
+                    self._installed_snaps_cache = None
+                    self._status_cache = None
                     self._call_progress(progress_cb, 1.0, f"Successfully removed {name}!")
                     self._call_complete(complete_cb, True, "remove", name, "")
                 else:
@@ -4928,6 +4953,8 @@ class ContainerManager:
         self.active_container_installs: Set[str] = set()
         self.is_configuring: bool = False
         self.configuring_progress_text: str = ""
+        self._status_cache: Optional[Dict[str, Any]] = None
+        self._status_cache_time: float = 0.0
 
     def is_app_installing(self, app_id: str) -> bool:
         return app_id in self.active_container_installs
@@ -4937,16 +4964,24 @@ class ContainerManager:
         st = self.get_status()
         return st.get("status_code") == "ready"
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self, force_refresh: bool = False) -> Dict[str, Any]:
         """Check container runtime and container existence."""
+        now = time.time()
+        if not force_refresh and hasattr(self, "_status_cache") and self._status_cache and (now - getattr(self, "_status_cache_time", 0.0) < 4.0):
+            res = dict(self._status_cache)
+            res["is_configuring"] = self.is_configuring
+            return res
+
         has_docker = shutil.which("docker") is not None
         daemon_running = False
         container_exists = False
         container_running = False
 
-        if has_docker:
+        docker_sock = Path("/var/run/docker.sock")
+        user_sock = Path(f"/run/user/{os.getuid()}/docker.sock")
+        if has_docker and (docker_sock.exists() or user_sock.exists()):
             try:
-                proc = subprocess.run(["docker", "info"], capture_output=True, timeout=6)
+                proc = subprocess.run(["docker", "info"], capture_output=True, timeout=4)
                 if proc.returncode == 0:
                     daemon_running = True
             except Exception:

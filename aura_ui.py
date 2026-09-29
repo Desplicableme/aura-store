@@ -4548,14 +4548,31 @@ class AuraWindow(Adw.ApplicationWindow):
 
         if not q:
             if hasattr(self, "snap_spinner"):
-                self.snap_spinner.stop()
-                self.snap_spinner.set_visible(False)
-            self.snap_status_lbl.remove_css_class("mac-loading-shimmer")
-            self.snap_status_lbl.set_text("Curated top software from Canonical Snap Store")
-            self.snap_flow_box.remove_all()
-            for snap in self.pm.snap_mgr.CURATED_SNAP_APPS:
-                card = self._create_snap_app_card(snap)
-                self.snap_flow_box.append(card)
+                self.snap_spinner.set_visible(True)
+                self.snap_spinner.start()
+            self.snap_status_lbl.set_text("Loading Canonical Snap Store catalog...")
+            self.snap_status_lbl.add_css_class("mac-loading-shimmer")
+
+            # Show skeleton placeholder cards if grid is empty
+            if not self.snap_flow_box.get_first_child():
+                for _ in range(6):
+                    self.snap_flow_box.append(self._create_snap_skeleton_card())
+
+            def _populate_curated():
+                curated = list(self.pm.snap_mgr.CURATED_SNAP_APPS)
+                self.snap_flow_box.remove_all()
+                for snap in curated:
+                    card = self._create_snap_app_card(snap)
+                    self.snap_flow_box.append(card)
+                if hasattr(self, "snap_spinner"):
+                    self.snap_spinner.stop()
+                    self.snap_spinner.set_visible(False)
+                self.snap_status_lbl.remove_css_class("mac-loading-shimmer")
+                self.snap_status_lbl.set_text("Curated top software from Canonical Snap Store")
+                self._sync_responsive_cols()
+                return False
+
+            GLib.idle_add(_populate_curated)
         else:
             if hasattr(self, "snap_spinner"):
                 self.snap_spinner.set_visible(True)
@@ -4563,6 +4580,43 @@ class AuraWindow(Adw.ApplicationWindow):
             self.snap_status_lbl.set_text(f"Searching Canonical Snap Store for '{query}'...")
             self.snap_status_lbl.add_css_class("mac-loading-shimmer")
             self._search_snaps_online(query)
+
+    def _create_snap_skeleton_card(self) -> Gtk.Box:
+        card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        card.add_css_class("mac-app-row")
+        card.add_css_class("mac-loading-shimmer")
+        card.set_hexpand(True)
+        card.set_valign(Gtk.Align.FILL)
+
+        sq = Gtk.Box()
+        sq.add_css_class("mac-squircle")
+        sq.set_size_request(54, 54)
+        card.append(sq)
+
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        col.set_hexpand(True)
+        col.set_valign(Gtk.Align.CENTER)
+
+        t_bar = Gtk.Box()
+        t_bar.add_css_class("mac-stat-card")
+        t_bar.set_size_request(130, 14)
+        t_bar.set_halign(Gtk.Align.START)
+        col.append(t_bar)
+
+        d_bar = Gtk.Box()
+        d_bar.add_css_class("mac-stat-card")
+        d_bar.set_size_request(190, 10)
+        d_bar.set_halign(Gtk.Align.START)
+        col.append(d_bar)
+
+        card.append(col)
+
+        btn = Gtk.Box()
+        btn.add_css_class("mac-btn-get")
+        btn.set_size_request(88, 32)
+        btn.set_valign(Gtk.Align.CENTER)
+        card.append(btn)
+        return card
 
     def _on_configure_snap_click(self, btn: Gtk.Button):
         btn.set_sensitive(False)
@@ -4863,7 +4917,7 @@ class AuraWindow(Adw.ApplicationWindow):
         disk_title.add_css_class("mac-spotlight-title")
         disk_title.set_halign(Gtk.Align.START)
         disk_title.set_ellipsize(Pango.EllipsizeMode.END)
-        disk_title.set_max_width_chars(25)
+        disk_title.set_max_width_chars(32)
         card_header.append(disk_title)
 
         self.storage_disk_summary_lbl = Gtk.Label(label="Calculating disk usage...")
@@ -4871,7 +4925,7 @@ class AuraWindow(Adw.ApplicationWindow):
         self.storage_disk_summary_lbl.set_halign(Gtk.Align.END)
         self.storage_disk_summary_lbl.set_hexpand(True)
         self.storage_disk_summary_lbl.set_ellipsize(Pango.EllipsizeMode.END)
-        self.storage_disk_summary_lbl.set_max_width_chars(28)
+        self.storage_disk_summary_lbl.set_max_width_chars(65)
         card_header.append(self.storage_disk_summary_lbl)
         storage_card.append(card_header)
 

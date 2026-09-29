@@ -771,11 +771,11 @@ flowboxchild {
     line-height: 1.25;
 }
 
-/* Symmetrical Full-Rounded Action Pill Buttons (GET, OPEN, INSTALLED, UPDATE, UNINSTALL) */
-.mac-btn-get, .mac-btn-open, .mac-btn-installed, .mac-btn-update, .mac-btn-uninstall {
-    min-width: 86px;
+/* Symmetrical Full-Rounded Action Pill Buttons (GET, OPEN, INSTALLED, UPDATE, UNINSTALL, QUEUED) */
+.mac-btn-get, .mac-btn-open, .mac-btn-installed, .mac-btn-update, .mac-btn-uninstall, .mac-btn-queued {
+    min-width: 82px;
     min-height: 32px;
-    padding: 0px 16px;
+    padding: 0px 14px;
     border-radius: 9999px;
     font-size: 11.5px;
     font-weight: 700;
@@ -789,6 +789,7 @@ flowboxchild {
 .mac-btn-installed:active,
 .mac-btn-update:active,
 .mac-btn-uninstall:active,
+.mac-btn-queued:active,
 .mac-btn-update-all:active,
 .mac-btn-primary-large:active,
 .mac-btn-detail-open:active,
@@ -806,6 +807,25 @@ flowboxchild {
 .mac-btn-get:hover {
     background: linear-gradient(180deg, #2191ff, #0077ed);
     box-shadow: 0 2px 6px rgba(10, 132, 255, 0.3);
+}
+
+.mac-btn-queued {
+    background: linear-gradient(180deg, #d29922, #b07d10);
+    color: #ffffff;
+    font-weight: 700;
+    border: none;
+    box-shadow: 0 1px 4px rgba(210, 153, 34, 0.25);
+}
+
+.mac-btn-queued:disabled {
+    opacity: 0.88;
+    box-shadow: none;
+}
+
+.mac-btn-primary-large.mac-btn-queued {
+    background: linear-gradient(180deg, #d29922, #b07d10);
+    color: #ffffff;
+    box-shadow: 0 1px 4px rgba(210, 153, 34, 0.25);
 }
 
 .mac-btn-open {
@@ -835,16 +855,16 @@ flowboxchild {
 }
 
 .mac-btn-update {
-    background: linear-gradient(180deg, #ff9f0a, #e68e00);
+    background: linear-gradient(135deg, #ff9f0a 0%, #ff6b00 100%);
     color: #ffffff;
     font-weight: 700;
     border: none;
-    box-shadow: 0 1px 4px rgba(255, 159, 10, 0.2);
+    box-shadow: 0 2px 8px rgba(255, 159, 10, 0.35);
 }
 
 .mac-btn-update:hover {
-    background: linear-gradient(180deg, #ffab26, #f09500);
-    box-shadow: 0 2px 6px rgba(255, 159, 10, 0.3);
+    background: linear-gradient(135deg, #ffaa26 0%, #ff791a 100%);
+    box-shadow: 0 4px 14px rgba(255, 159, 10, 0.45);
 }
 
 .mac-btn-get:disabled {
@@ -1398,48 +1418,51 @@ flowboxchild:hover {
 
 /* Detail Page Update Banner (Modern Glassmorphic Card) */
 .mac-update-banner {
-    background: linear-gradient(135deg, rgba(255, 159, 10, 0.14) 0%, rgba(255, 159, 10, 0.04) 100%);
-    border: 1px solid rgba(255, 159, 10, 0.28);
+    background: linear-gradient(135deg, rgba(255, 159, 10, 0.16) 0%, rgba(255, 94, 58, 0.08) 100%);
+    border: 1px solid rgba(255, 159, 10, 0.35);
     border-radius: 16px;
     padding: 14px 18px;
     margin-bottom: 14px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 4px 20px rgba(255, 159, 10, 0.08), 0 2px 8px rgba(0, 0, 0, 0.25);
     transition: all 180ms ease;
 }
 
 .mac-update-banner:hover {
-    border-color: rgba(255, 159, 10, 0.42);
-    box-shadow: 0 6px 24px rgba(255, 159, 10, 0.15);
+    border-color: rgba(255, 159, 10, 0.50);
+    box-shadow: 0 6px 26px rgba(255, 159, 10, 0.18), 0 2px 10px rgba(0, 0, 0, 0.3);
 }
 
 .mac-update-badge-icon {
-    min-width: 38px;
-    min-height: 38px;
-    border-radius: 11px;
-    background: rgba(255, 159, 10, 0.18);
-    border: 1px solid rgba(255, 159, 10, 0.35);
-    color: #ff9f0a;
+    min-width: 40px;
+    min-height: 40px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #ff9f0a 0%, #ff6b00 100%);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+    box-shadow: 0 3px 10px rgba(255, 159, 10, 0.40);
 }
 
 .mac-update-banner-title {
-    font-size: 13.5px;
+    font-size: 14px;
     font-weight: 700;
     color: #ffffff;
+    letter-spacing: -0.2px;
 }
 
 .mac-update-version-pill {
-    background: rgba(255, 159, 10, 0.16);
-    border: 1px solid rgba(255, 159, 10, 0.32);
-    border-radius: 6px;
-    padding: 2px 8px;
+    background: rgba(255, 159, 10, 0.22);
+    border: 1px solid rgba(255, 159, 10, 0.45);
+    border-radius: 8px;
+    padding: 2px 9px;
     font-size: 11px;
-    font-weight: 600;
-    color: #ffb340;
+    font-weight: 700;
+    color: #ffd080;
+    letter-spacing: 0.2px;
 }
 
 .mac-update-banner-sub {
     font-size: 12px;
-    color: #a1a1a6;
+    color: rgba(255, 255, 255, 0.65);
     margin-top: 2px;
 }
 
@@ -2378,30 +2401,31 @@ class AuraWindow(Adw.ApplicationWindow):
 
         # Responsive Breakpoints for multi-column grids (calibrated with 232px sidebar):
         # Fullscreen / Ultra-wide (>= 1580px): 4 columns
-        # Wide (1220px - 1579px): 3 columns
-        # Standard Window (900px - 1219px): 2 columns
-        # Compact (< 900px): 1 column
+        # Wide (1200px - 1579px): 3 columns
+        # Standard Window (680px - 1199px): 2 columns (enforces 2 apps per row in windowed mode)
+        # Ultra-compact (< 680px): 1 column
         bp_ultrawide = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 1580px'))
         bp_ultrawide.connect('apply', lambda b: self._set_grid_cols(4))
         bp_ultrawide.connect('unapply', lambda b: self._sync_responsive_cols())
         self.add_breakpoint(bp_ultrawide)
 
-        bp_wide = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 1220px and max-width: 1579px'))
+        bp_wide = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 1200px and max-width: 1579px'))
         bp_wide.connect('apply', lambda b: self._set_grid_cols(3))
         bp_wide.connect('unapply', lambda b: self._sync_responsive_cols())
         self.add_breakpoint(bp_wide)
 
-        bp_standard = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 900px and max-width: 1219px'))
+        bp_standard = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 680px and max-width: 1199px'))
         bp_standard.connect('apply', lambda b: self._set_grid_cols(2))
         bp_standard.connect('unapply', lambda b: self._sync_responsive_cols())
         self.add_breakpoint(bp_standard)
 
-        bp_compact = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('max-width: 899px'))
+        bp_compact = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('max-width: 679px'))
         bp_compact.connect('apply', lambda b: self._set_grid_cols(1))
         bp_compact.connect('unapply', lambda b: self._sync_responsive_cols())
         self.add_breakpoint(bp_compact)
 
         self.connect("notify::fullscreened", lambda *a: self._sync_responsive_cols())
+        self.connect("close-request", self._on_close_request)
 
         # Global Type-to-Search Key Controller
         key_ctrl = Gtk.EventControllerKey.new()
@@ -2419,7 +2443,7 @@ class AuraWindow(Adw.ApplicationWindow):
             self._set_grid_cols(4)
         elif content_w >= 940:
             self._set_grid_cols(3)
-        elif content_w >= 660:
+        elif content_w >= 440:
             self._set_grid_cols(2)
         else:
             self._set_grid_cols(1)
@@ -2430,7 +2454,8 @@ class AuraWindow(Adw.ApplicationWindow):
             min_c = getattr(flow, "_aura_min_cols", 1)
             max_c = getattr(flow, "_aura_max_cols", 4)
             target = max(min_c, min(cols, max_c))
-            flow.set_min_children_per_line(1)
+            eff_min = 1 if target <= 1 else min(target, max(min_c, 2))
+            flow.set_min_children_per_line(eff_min)
             flow.set_max_children_per_line(target)
 
     def _get_target_cols(self) -> int:
@@ -2442,14 +2467,88 @@ class AuraWindow(Adw.ApplicationWindow):
             return 4
         elif content_w >= 940:
             return 3
-        elif content_w >= 660:
+        elif content_w >= 440:
             return 2
-        elif 0 < content_w < 660:
+        elif 0 < content_w < 440:
             return 1
         return getattr(self, "_active_cols", 2)
 
     def _sync_all_grid_columns(self):
         self._sync_responsive_cols()
+
+    def _on_close_request(self, window) -> bool:
+        """Intercept window close: if transactions or tasks are active/queued, hide window, finish in background, then cleanly exit."""
+        if hasattr(self.pm, "has_active_tasks") and self.pm.has_active_tasks():
+            try:
+                active_tx = self.pm.get_active_transaction()
+                pkg = (active_tx.get("pkg_name") or "package") if isinstance(active_tx, dict) else "package"
+                subprocess.Popen(["notify-send", "-a", "Aura", "-i", "aura-icon", "Aura Store", f"Finishing package installation for {pkg} in background..."])
+            except Exception:
+                pass
+
+            # Hide the window immediately so user feels the window closed
+            self.set_visible(False)
+
+            def _poll_exit():
+                if self.pm.has_active_tasks():
+                    return True  # Keep polling
+                try:
+                    subprocess.Popen(["notify-send", "-a", "Aura", "-i", "aura-icon", "Aura Store", "All background package tasks completed."])
+                except Exception:
+                    pass
+                app = self.get_application()
+                if app:
+                    app.quit()
+                return False
+
+            GLib.timeout_add(1000, _poll_exit)
+            return True  # Stop default close from destroying window immediately
+        return False
+
+    def _sync_all_cards(self):
+        """Dynamically refresh action button states across all registered grids when background tasks update."""
+        for flow in getattr(self, "_registered_grids", []):
+            child = flow.get_first_child()
+            while child:
+                card = child.get_child() if hasattr(child, "get_child") else None
+                if card and hasattr(card, "_pkg_name") and hasattr(card, "_action_btn"):
+                    name = card._pkg_name
+                    btn = card._action_btn
+                    if hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name):
+                        active_tx = self.pm.get_active_transaction() if hasattr(self.pm, "get_active_transaction") else None
+                        is_up = bool(active_tx and isinstance(active_tx, dict) and active_tx.get("action") in ["update", "upgrade"])
+                        btn.set_label("UPDATING..." if is_up else "INSTALLING...")
+                        btn.remove_css_class("mac-btn-queued")
+                        btn.remove_css_class("mac-btn-open")
+                        btn.remove_css_class("mac-btn-installed")
+                        btn.remove_css_class("mac-btn-update")
+                        btn.add_css_class("mac-btn-get")
+                        btn.set_sensitive(False)
+                    elif hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(name):
+                        btn.set_label("QUEUED")
+                        btn.remove_css_class("mac-btn-get")
+                        btn.remove_css_class("mac-btn-open")
+                        btn.remove_css_class("mac-btn-installed")
+                        btn.remove_css_class("mac-btn-update")
+                        btn.add_css_class("mac-btn-queued")
+                        btn.set_sensitive(False)
+                    elif btn.get_label() in ("QUEUED", "INSTALLING...", "UPDATING..."):
+                        btn.remove_css_class("mac-btn-queued")
+                        if self.pm.is_installed(name):
+                            if self.pm.detect_desktop_entry(name):
+                                btn.set_label("OPEN")
+                                btn.remove_css_class("mac-btn-get")
+                                btn.add_css_class("mac-btn-open")
+                            else:
+                                btn.set_label("INSTALLED")
+                                btn.remove_css_class("mac-btn-get")
+                                btn.add_css_class("mac-btn-installed")
+                            btn.set_sensitive(True)
+                        else:
+                            btn.set_label("GET")
+                            btn.add_css_class("mac-btn-get")
+                            btn.set_sensitive(True)
+                child = child.get_next_sibling()
 
     def _on_window_key_pressed(self, controller: Gtk.EventControllerKey, keyval: int, keycode: int, state: Gdk.ModifierType) -> bool:
         # 1. Do not intercept if a modal or alert dialog is active
@@ -3889,7 +3988,16 @@ class AuraWindow(Adw.ApplicationWindow):
         if update_status:
             status = self.pm.container_mgr.get_status()
             self.container_title_lbl.set_text("Aura Box Sandbox")
-            if status["status_code"] == "ready":
+            if getattr(self.pm.container_mgr, "is_configuring", False) is True:
+                self.container_status_pill.set_text("CONFIGURING...")
+                self.container_status_pill.remove_css_class("mac-container-pill-active")
+                self.container_status_pill.add_css_class("mac-container-pill-pending")
+                prog_raw = getattr(self.pm.container_mgr, "configuring_progress_text", "")
+                prog_txt = prog_raw if isinstance(prog_raw, str) and prog_raw else "Configuring container sandbox in the background..."
+                self.container_desc_lbl.set_text(prog_txt)
+                self.btn_configure_container.set_label("Configuring...")
+                self.btn_configure_container.set_sensitive(False)
+            elif status["status_code"] == "ready":
                 self.container_status_pill.set_text("ACTIVE")
                 self.container_status_pill.remove_css_class("mac-container-pill-pending")
                 self.container_status_pill.add_css_class("mac-container-pill-active")
@@ -4414,6 +4522,16 @@ class AuraWindow(Adw.ApplicationWindow):
             self.btn_configure_snap.set_label("Ready")
             self.btn_configure_snap.set_sensitive(False)
             self.btn_snap_options.set_visible(True)
+        elif getattr(self.pm.snap_mgr, "is_setting_up", False) is True:
+            self.snap_status_pill.set_text("CONFIGURING...")
+            self.snap_status_pill.remove_css_class("mac-container-pill-active")
+            self.snap_status_pill.add_css_class("mac-container-pill-pending")
+            prog_raw = getattr(self.pm.snap_mgr, "setup_progress_text", "")
+            prog_txt = prog_raw if isinstance(prog_raw, str) and prog_raw else "Auto-configuring Canonical snapd service in background..."
+            self.snap_desc_lbl.set_text(prog_txt)
+            self.btn_configure_snap.set_label("Configuring...")
+            self.btn_configure_snap.set_sensitive(False)
+            self.btn_snap_options.set_visible(False)
         else:
             self.snap_status_pill.set_text("AUTO-SETUP")
             self.snap_status_pill.remove_css_class("mac-container-pill-active")
@@ -5268,11 +5386,15 @@ class AuraWindow(Adw.ApplicationWindow):
         up_banner_icon_box.add_css_class("mac-update-badge-icon")
         up_banner_icon_box.set_valign(Gtk.Align.CENTER)
         up_banner_icon_box.set_halign(Gtk.Align.CENTER)
-        up_banner_icon_box.set_size_request(38, 38)
+        up_banner_icon_box.set_size_request(40, 40)
+        up_banner_icon_box.set_hexpand(False)
+        up_banner_icon_box.set_vexpand(False)
         up_banner_icon = Gtk.Image.new_from_icon_name("feather-refresh-cw-symbolic")
         up_banner_icon.set_pixel_size(18)
         up_banner_icon.set_halign(Gtk.Align.CENTER)
         up_banner_icon.set_valign(Gtk.Align.CENTER)
+        up_banner_icon.set_hexpand(True)
+        up_banner_icon.set_vexpand(True)
         up_banner_icon_box.append(up_banner_icon)
         self.detail_update_banner.append(up_banner_icon_box)
 
@@ -5423,7 +5545,8 @@ class AuraWindow(Adw.ApplicationWindow):
         flow._aura_max_cols = max_c
         cols = self._get_target_cols()
         target = max(min_c, min(cols, max_c))
-        flow.set_min_children_per_line(1)
+        eff_min = 1 if target <= 1 else min(target, max(min_c, 2))
+        flow.set_min_children_per_line(eff_min)
         flow.set_max_children_per_line(target)
         flow.set_column_spacing(16)
         flow.set_row_spacing(12)
@@ -5539,6 +5662,10 @@ class AuraWindow(Adw.ApplicationWindow):
             is_up = bool(active_tx and isinstance(active_tx, dict) and active_tx.get("action") in ["update", "upgrade"])
             action_btn = Gtk.Button(label="UPDATING..." if is_up else "INSTALLING...")
             action_btn.add_css_class("mac-btn-get")
+            action_btn.set_sensitive(False)
+        elif hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(name):
+            action_btn = Gtk.Button(label="QUEUED")
+            action_btn.add_css_class("mac-btn-queued")
             action_btn.set_sensitive(False)
         elif is_inst:
             if has_desktop:
@@ -5786,6 +5913,7 @@ class AuraWindow(Adw.ApplicationWindow):
         # Action Buttons
         desktop_entry = d.get("desktop_entry")
         is_installing = hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name)
+        is_queued = hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(name)
 
         if is_installing:
             self.progress_container.set_visible(True)
@@ -5804,6 +5932,20 @@ class AuraWindow(Adw.ApplicationWindow):
             self.btn_detail_install.set_label("UPDATING..." if up_item else "INSTALLING...")
             self.btn_detail_install.set_sensitive(False)
             self.btn_detail_install.set_css_classes(["mac-btn-primary-large"])
+            self.btn_detail_install.set_size_request(108, 36)
+            self.btn_detail_install.set_visible(True)
+            self.btn_detail_remove.set_visible(False)
+        elif is_queued:
+            self.progress_container.set_visible(False)
+            if hasattr(self, "btn_banner_update"):
+                self.btn_banner_update.set_label("QUEUED")
+                self.btn_banner_update.set_sensitive(False)
+            self.btn_detail_launch.set_visible(False)
+            if hasattr(self, "btn_detail_update"):
+                self.btn_detail_update.set_visible(False)
+            self.btn_detail_install.set_label("QUEUED")
+            self.btn_detail_install.set_sensitive(False)
+            self.btn_detail_install.set_css_classes(["mac-btn-primary-large", "mac-btn-queued"])
             self.btn_detail_install.set_size_request(108, 36)
             self.btn_detail_install.set_visible(True)
             self.btn_detail_remove.set_visible(False)
@@ -6444,10 +6586,17 @@ class AuraWindow(Adw.ApplicationWindow):
                 dlg.present(self)
                 return
 
-        self._start_smooth_progress("install", name, display_name=disp, source=source, target_view="detail")
-
         def _on_prog(frac: float, status_msg: str):
-            self._on_progress_update(frac, status_msg)
+            def _ui_p():
+                if hasattr(self, "btn_detail_install") and self._current_detail and self._current_detail.get("name") == name:
+                    if self.btn_detail_install.get_label() == "QUEUED" and frac > 0.0:
+                        self.btn_detail_install.set_label("INSTALLING...")
+                        self.btn_detail_install.remove_css_class("mac-btn-queued")
+                        self.btn_detail_install.add_css_class("mac-btn-primary-large")
+                        self._start_smooth_progress("install", name, display_name=disp, source=source, target_view="detail")
+                self._on_progress_update(frac, status_msg)
+                self._sync_all_cards()
+            GLib.idle_add(_ui_p)
 
         def _on_done(ok: bool, action: str, pkg_name: str, err: str):
             def _ui():
@@ -6459,11 +6608,24 @@ class AuraWindow(Adw.ApplicationWindow):
                     GLib.timeout_add(1500, lambda: self._open_package_detail(pkg_name, source) or False)
                 else:
                     self.btn_detail_install.set_sensitive(True)
+                    self.btn_detail_install.remove_css_class("mac-btn-queued")
                     self.btn_detail_install.set_label("GET")
                     self.show_toast(f"Installation failed: {err[:50]}")
+                self._sync_all_cards()
             GLib.idle_add(_ui)
 
-        self.pm.execute_background_action("install", name, source, _on_prog, _on_done)
+        res = self.pm.execute_background_action("install", name, source, _on_prog, _on_done)
+        if res == "queued":
+            pos = self.pm.get_queue_position(name)
+            self.btn_detail_install.set_label("QUEUED")
+            self.btn_detail_install.remove_css_class("mac-btn-primary-large")
+            self.btn_detail_install.add_css_class("mac-btn-queued")
+            self.btn_detail_install.set_sensitive(False)
+            self.show_toast(f"Added {disp} to installation queue (position #{pos})")
+            self._sync_all_cards()
+        else:
+            self._start_smooth_progress("install", name, display_name=disp, source=source, target_view="detail")
+            self._sync_all_cards()
 
     def _on_remove_click(self):
         if not self._current_detail:
@@ -6516,17 +6678,26 @@ class AuraWindow(Adw.ApplicationWindow):
             self.btn_detail_update.set_label("UPDATING...")
             self.btn_detail_update.set_sensitive(False)
 
-        # 2. Disable other UPDATE buttons and UPDATE ALL button while transaction is active
-        for other_name, other_btn in self._updates_buttons.items():
-            if other_name != pkg_name:
-                other_btn.set_sensitive(False)
-        if hasattr(self, "btn_update_all"):
-            self.btn_update_all.set_sensitive(False)
-
-        self._start_smooth_progress("update", pkg_name, display_name=disp, source=source, target_view="updates")
+        if hasattr(self, "btn_banner_update") and self.main_stack.get_visible_child_name() == "detail" and self._current_detail and self._current_detail.get("name") == pkg_name:
+            self.btn_banner_update.set_label("UPDATING...")
+            self.btn_banner_update.set_sensitive(False)
 
         def _on_prog(frac: float, msg: str):
-            self._on_progress_update(frac, msg)
+            def _ui_p():
+                if hasattr(self, "_updates_buttons") and pkg_name in self._updates_buttons:
+                    b = self._updates_buttons[pkg_name]
+                    if b.get_label() == "QUEUED" and frac > 0.0:
+                        b.set_label("UPDATING...")
+                        b.remove_css_class("mac-btn-queued")
+                        b.add_css_class("mac-btn-get")
+                if hasattr(self, "btn_banner_update") and self.main_stack.get_visible_child_name() == "detail" and self._current_detail and self._current_detail.get("name") == pkg_name:
+                    if self.btn_banner_update.get_label() == "QUEUED" and frac > 0.0:
+                        self.btn_banner_update.set_label("UPDATING...")
+                        self.btn_banner_update.remove_css_class("mac-btn-queued")
+                        self.btn_banner_update.add_css_class("mac-btn-get")
+                self._on_progress_update(frac, msg)
+                self._sync_all_cards()
+            GLib.idle_add(_ui_p)
 
         def _on_done(ok: bool, action: str, name: str, err: str):
             def _ui():
@@ -6544,14 +6715,38 @@ class AuraWindow(Adw.ApplicationWindow):
                     self._cached_installed_apps_flow = None
                     self._populate_updates(self.pm.upgradable_list)
                     # Refresh detail page if open for this package
-                    if self.main_stack.get_visible_child_name() == "detail" and self._current_detail.get("name") == name:
+                    if self.main_stack.get_visible_child_name() == "detail" and self._current_detail and self._current_detail.get("name") == name:
                         self._open_package_detail(name, source)
                 else:
                     self.show_toast(f"Update failed for {disp}: {err[:50]}")
                     self._sync_updates_ui_state()
+                self._sync_all_cards()
             GLib.idle_add(_ui)
 
-        self.pm.execute_background_action("update", pkg_name, source, _on_prog, _on_done)
+        res = self.pm.execute_background_action("update", pkg_name, source, _on_prog, _on_done)
+        if res == "queued":
+            pos = self.pm.get_queue_position(pkg_name)
+            if btn:
+                btn.set_label("QUEUED")
+                btn.remove_css_class("mac-btn-get")
+                btn.remove_css_class("mac-btn-update")
+                btn.add_css_class("mac-btn-queued")
+                btn.set_sensitive(False)
+            if hasattr(self, "btn_detail_update") and self.main_stack.get_visible_child_name() == "detail" and self._current_detail and self._current_detail.get("name") == pkg_name:
+                self.btn_detail_update.set_label("QUEUED")
+                self.btn_detail_update.remove_css_class("mac-btn-get")
+                self.btn_detail_update.add_css_class("mac-btn-queued")
+                self.btn_detail_update.set_sensitive(False)
+            if hasattr(self, "btn_banner_update") and self.main_stack.get_visible_child_name() == "detail" and self._current_detail and self._current_detail.get("name") == pkg_name:
+                self.btn_banner_update.set_label("QUEUED")
+                self.btn_banner_update.remove_css_class("mac-btn-update")
+                self.btn_banner_update.add_css_class("mac-btn-queued")
+                self.btn_banner_update.set_sensitive(False)
+            self.show_toast(f"Added {disp} update to queue (position #{pos})")
+            self._sync_all_cards()
+        else:
+            self._start_smooth_progress("update", pkg_name, display_name=disp, source=source, target_view="updates")
+            self._sync_all_cards()
 
     def _update_all_packages(self):
         # 1. Immediately disable UPDATE ALL button

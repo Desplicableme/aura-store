@@ -2117,6 +2117,7 @@ class PackageManager:
         self._aur_cache: Dict[str, List[Dict[str, Any]]] = {}
         self.is_loaded = False
         self.active_transaction: Optional[Dict[str, Any]] = None
+        self._pending_actions: List[Dict[str, Any]] = []
         self._last_progress: float = 0.0
         self._action_lock = threading.Lock()
         self.is_checking_updates = False
@@ -2209,6 +2210,65 @@ class PackageManager:
                         if any(u.get("name", "").strip().lower() == target for u in self.upgradable_list):
                             return True
             return False
+
+    def is_pkg_queued(self, pkg_name: str) -> bool:
+        """Returns True if pkg_name is queued waiting for pacman/system transaction."""
+        if not pkg_name:
+            return False
+        target = pkg_name.strip().lower()
+        with self._action_lock:
+            return any(
+                (item.get("pkg_name") or "").strip().lower() == target
+                for item in self._pending_actions
+            )
+
+    def get_queued_pkgs(self) -> List[str]:
+        """Returns list of package names currently waiting in the transaction queue."""
+        with self._action_lock:
+            return [(item.get("pkg_name") or "").strip().lower() for item in self._pending_actions if item.get("pkg_name")]
+
+    def get_queue_length(self) -> int:
+        """Returns count of actions currently queued."""
+        with self._action_lock:
+            return len(self._pending_actions)
+
+    def get_queue_position(self, pkg_name: str) -> int:
+        """Returns 1-based position in queue if queued, or 0 if not queued."""
+        if not pkg_name:
+            return 0
+        target = pkg_name.strip().lower()
+        with self._action_lock:
+            for idx, item in enumerate(self._pending_actions, start=1):
+                if (item.get("pkg_name") or "").strip().lower() == target:
+                    return idx
+        return 0
+
+    def cancel_queued_pkg(self, pkg_name: str) -> bool:
+        """Removes a package from the pending queue if present. Returns True if removed."""
+        if not pkg_name:
+            return False
+        target = pkg_name.strip().lower()
+        with self._action_lock:
+            for idx, item in enumerate(self._pending_actions):
+                if (item.get("pkg_name") or "").strip().lower() == target:
+                    self._pending_actions.pop(idx)
+                    return True
+        return False
+
+    def is_busy(self) -> bool:
+        """Returns True if a transaction is currently active or actions are queued."""
+        with self._action_lock:
+            return self.active_transaction is not None or len(self._pending_actions) > 0
+
+    def has_active_tasks(self) -> bool:
+        """Returns True if any background transaction, queued action, or service setup is running."""
+        if self.is_busy():
+            return True
+        if getattr(self.snap_mgr, "is_setting_up", False):
+            return True
+        if getattr(self.container_mgr, "is_configuring", False):
+            return True
+        return False
 
     def get_active_progress(self, pkg_name: Optional[str] = None) -> Tuple[float, str]:
         """
@@ -3086,43 +3146,135 @@ class PackageManager:
                 return False
 
 
+    def _init_active_transaction(self, action: str, pkg_name: str, source: str):
+        """Initializes self.active_transaction dictionary under self._action_lock."""
+        is_system_upgrade = pkg_name in ["system", "--all", "all", ""] or not pkg_name
+        target_pkg = ("" if is_system_upgrade else (pkg_name or "")).strip().lower()
+
+        self.active_transaction = {
+            "action": action,
+            "pkg_name": pkg_name,
+            "source": source,
+            "progress": 0.06,
+            "status": "Authenticating & preparing...",
+            "status_msg": "Authenticating & preparing...",
+            "start_time": time.time(),
+            "current_pkg": target_pkg if target_pkg else (pkg_name or None),
+            "completed_pkgs": [],
+            "current_idx": 0,
+            "total_packages": 1,
+        }
+        if action in ["upgrade", "update"] and is_system_upgrade:
+            with self._lock:
+                pkgs = [u.get("name") for u in self.upgradable_list if u.get("name")]
+                self.active_transaction["packages"] = pkgs
+                if pkgs:
+                    self.active_transaction["total_packages"] = len(pkgs)
+        elif pkg_name:
+            self.active_transaction["packages"] = [pkg_name]
+        self._last_progress = 0.06
+
+    def _process_next_action(self):
+        """Pops and executes the next pending action from the queue, or resets active_transaction if empty."""
+        with self._action_lock:
+            if not self._pending_actions:
+                target_tx = self.active_transaction
+                def _clear():
+                    time.sleep(0.8)
+                    with self._action_lock:
+                        if self.active_transaction is target_tx:
+                            self.active_transaction = None
+                            self._last_progress = 0.0
+                threading.Thread(target=_clear, daemon=True).start()
+                return
+
+            # Atomically pop and initialize next active_transaction so is_busy stays True
+            next_action = self._pending_actions.pop(0)
+            self._init_active_transaction(
+                next_action["action"],
+                next_action["pkg_name"],
+                next_action["source"]
+            )
+
+        # 0.4s pause ensures pacman / paru closes /var/lib/pacman/db.lck cleanly
+        def _deferred_start():
+            time.sleep(0.4)
+            self._start_action_worker(
+                action=next_action["action"],
+                pkg_name=next_action["pkg_name"],
+                source=next_action["source"],
+                progress_cb=next_action["progress_cb"],
+                complete_cb=next_action["complete_cb"],
+                start_cb=next_action.get("start_cb"),
+            )
+
+        threading.Thread(target=_deferred_start, daemon=True).start()
+
     def execute_background_action(
         self,
         action: str,
         pkg_name: str,
         source: str,
         progress_cb: Callable[[float, str], None],
-        complete_cb: Callable[[bool, str, str, str], None]
-    ):
+        complete_cb: Callable[[bool, str, str, str], None],
+        start_cb: Optional[Callable[[], None]] = None
+    ) -> str:
         """
         Run installation, removal, or upgrade in background without terminal popups.
+        Thread-safe FIFO Action Queue:
+        - If a transaction is active, appends to self._pending_actions and returns 'queued'.
+        - If idle, begins execution immediately and returns 'started'.
+        - When an action completes, automatically pops and executes the next queued action.
         """
-        is_system_upgrade = pkg_name in ["system", "--all", "all", ""] or not pkg_name
-        target_pkg = ("" if is_system_upgrade else (pkg_name or "")).strip().lower()
+        target_norm = (pkg_name or "").strip().lower()
 
         with self._action_lock:
-            self.active_transaction = {
-                "action": action,
-                "pkg_name": pkg_name,
-                "source": source,
-                "progress": 0.06,
-                "status": "Authenticating & preparing...",
-                "status_msg": "Authenticating & preparing...",
-                "start_time": time.time(),
-                "current_pkg": target_pkg if target_pkg else (pkg_name or None),
-                "completed_pkgs": [],
-                "current_idx": 0,
-                "total_packages": 1,
-            }
-            if action in ["upgrade", "update"] and is_system_upgrade:
-                with self._lock:
-                    pkgs = [u.get("name") for u in self.upgradable_list if u.get("name")]
-                    self.active_transaction["packages"] = pkgs
-                    if pkgs:
-                        self.active_transaction["total_packages"] = len(pkgs)
-            elif pkg_name:
-                self.active_transaction["packages"] = [pkg_name]
-            self._last_progress = 0.06
+            # Check if identical action is already running or queued
+            if self.active_transaction is not None:
+                tx_pkg = (self.active_transaction.get("pkg_name") or "").strip().lower()
+                if target_norm and tx_pkg == target_norm:
+                    return "already_active"
+                for item in self._pending_actions:
+                    if (item.get("pkg_name") or "").strip().lower() == target_norm and item.get("action") == action:
+                        return "already_queued"
+
+                self._pending_actions.append({
+                    "action": action,
+                    "pkg_name": pkg_name,
+                    "source": source,
+                    "progress_cb": progress_cb,
+                    "complete_cb": complete_cb,
+                    "start_cb": start_cb,
+                    "enqueued_time": time.time(),
+                })
+                q_pos = len(self._pending_actions)
+                progress_cb(0.02, f"Queued in transaction line (#{q_pos})...")
+                return "queued"
+
+            # Idle: initialize active_transaction immediately under lock
+            self._init_active_transaction(action, pkg_name, source)
+
+        # Start the action worker
+        self._start_action_worker(action, pkg_name, source, progress_cb, complete_cb, start_cb)
+        return "started"
+
+    def _start_action_worker(
+        self,
+        action: str,
+        pkg_name: str,
+        source: str,
+        progress_cb: Callable[[float, str], None],
+        complete_cb: Callable[[bool, str, str, str], None],
+        start_cb: Optional[Callable[[], None]] = None
+    ):
+        if start_cb:
+            try:
+                start_cb()
+            except Exception as e:
+                print(f"[Aura] Error in start_cb: {e}", file=sys.stderr)
+
+        is_system_upgrade = pkg_name in ["system", "--all", "all", ""] or not pkg_name
+        target_pkg = ("" if is_system_upgrade else (pkg_name or "")).strip().lower()
 
         def _safe_progress(
             target_frac: float,
@@ -3151,173 +3303,167 @@ class PackageManager:
                         self.active_transaction["total_packages"] = tot_p
             progress_cb(frac, msg)
 
-        _report_prog = _safe_progress
-
         def _worker():
-            env = os.environ.copy()
-            if ASKPASS_SCRIPT.exists():
-                env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
-            env["LC_ALL"] = "C"
+            try:
+                env = os.environ.copy()
+                if ASKPASS_SCRIPT.exists():
+                    env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
+                env["LC_ALL"] = "C"
 
-            # Check if source is snap or docker, or if updating a package that originated from snap/docker
-            actual_source = source
-            if actual_source == "pacman" and action in ["update", "upgrade"] and not is_system_upgrade:
-                with self._lock:
-                    matched = next((u for u in self.upgradable_list if u.get("name") == pkg_name), None)
-                    if matched and matched.get("source") in ("snap", "docker"):
-                        actual_source = matched["source"]
+                actual_source = source
+                if actual_source == "pacman" and action in ["update", "upgrade"] and not is_system_upgrade:
+                    with self._lock:
+                        matched = next((u for u in self.upgradable_list if u.get("name") == pkg_name), None)
+                        if matched and matched.get("source") in ("snap", "docker"):
+                            actual_source = matched["source"]
 
-            if actual_source == "snap":
-                def _snap_prog(frac_or_msg, maybe_msg=None):
-                    if isinstance(frac_or_msg, (int, float)):
-                        frac = float(frac_or_msg)
-                        msg = str(maybe_msg or "")
+                if actual_source == "snap":
+                    def _snap_prog(frac_or_msg, maybe_msg=None):
+                        if isinstance(frac_or_msg, (int, float)):
+                            frac = float(frac_or_msg)
+                            msg = str(maybe_msg or "")
+                        else:
+                            msg = str(frac_or_msg)
+                            frac = 0.5
+                        _safe_progress(frac, msg)
+
+                    def _snap_done(ok: bool, *args):
+                        if len(args) == 3:
+                            _, _, err = args
+                        elif len(args) == 1:
+                            err = "" if ok else str(args[0])
+                        else:
+                            err = "" if ok else "Snap operation failed"
+
+                        if ok:
+                            with self._lock:
+                                if action in ["upgrade", "update"]:
+                                    self.upgradable_list = [u for u in self.upgradable_list if u.get("name") != pkg_name]
+                                    try:
+                                        with open(UPDATES_CACHE_FILE, "w") as f:
+                                            json.dump(self.upgradable_list, f)
+                                    except Exception:
+                                        pass
+                            comp_msg = f"Completed {action} for {pkg_name}."
+                            with self._action_lock:
+                                if self.active_transaction:
+                                    self.active_transaction["progress"] = 1.0
+                                    self.active_transaction["status"] = comp_msg
+                                    self.active_transaction["status_msg"] = comp_msg
+                            self._last_progress = 1.0
+                            progress_cb(1.0, comp_msg)
+                            try:
+                                complete_cb(True, action, pkg_name, "")
+                            finally:
+                                self._process_next_action()
+                        else:
+                            with self._action_lock:
+                                if self.active_transaction:
+                                    self.active_transaction["progress"] = 0.0
+                                    self.active_transaction["status"] = f"Failed: {err}"
+                                    self.active_transaction["status_msg"] = f"Failed: {err}"
+                                self.active_transaction = None
+                                self._last_progress = 0.0
+                            progress_cb(0.0, f"Failed: {err}")
+                            try:
+                                complete_cb(False, action, pkg_name, err)
+                            finally:
+                                self._process_next_action()
+
+                    if action == "install":
+                        self.snap_mgr.install_snap(pkg_name, progress_cb=_snap_prog, complete_cb=_snap_done)
+                    elif action == "remove":
+                        self.snap_mgr.remove_snap(pkg_name, progress_cb=_snap_prog, complete_cb=_snap_done)
+                    elif action in ["update", "upgrade"]:
+                        self.snap_mgr.update_snap(pkg_name, progress_cb=_snap_prog, complete_cb=_snap_done)
                     else:
-                        msg = str(frac_or_msg)
-                        frac = 0.5
-                    _safe_progress(frac, msg)
+                        _snap_done(False, f"Unsupported snap action: {action}")
+                    return
 
-                def _snap_done(ok: bool, *args):
-                    if len(args) == 3:
-                        _, _, err = args
-                    elif len(args) == 1:
-                        err = "" if ok else str(args[0])
-                    else:
-                        err = "" if ok else "Snap operation failed"
+                if actual_source == "docker":
+                    def _docker_prog(msg: str):
+                        _safe_progress(0.5, str(msg))
 
-                    if ok:
-                        with self._lock:
-                            if action in ["upgrade", "update"]:
+                    def _docker_done(ok: bool, msg: str = ""):
+                        if ok:
+                            with self._lock:
                                 self.upgradable_list = [u for u in self.upgradable_list if u.get("name") != pkg_name]
                                 try:
                                     with open(UPDATES_CACHE_FILE, "w") as f:
                                         json.dump(self.upgradable_list, f)
                                 except Exception:
                                     pass
-                        comp_msg = f"Completed {action} for {pkg_name}."
-                        with self._action_lock:
-                            if self.active_transaction:
-                                self.active_transaction["progress"] = 1.0
-                                self.active_transaction["status"] = comp_msg
-                                self.active_transaction["status_msg"] = comp_msg
-                        self._last_progress = 1.0
-                        progress_cb(1.0, comp_msg)
-                        complete_cb(True, action, pkg_name, "")
-                        target_tx = self.active_transaction
-                        def _clear():
-                            time.sleep(1.0)
+                            comp_msg = f"Updated container application {pkg_name}."
                             with self._action_lock:
-                                if self.active_transaction is target_tx:
-                                    self.active_transaction = None
-                                    self._last_progress = 0.0
-                        threading.Thread(target=_clear, daemon=True).start()
-                    else:
-                        with self._action_lock:
-                            if self.active_transaction:
-                                self.active_transaction["progress"] = 0.0
-                                self.active_transaction["status"] = f"Failed: {err}"
-                                self.active_transaction["status_msg"] = f"Failed: {err}"
-                            self.active_transaction = None
-                            self._last_progress = 0.0
-                        progress_cb(0.0, f"Failed: {err}")
-                        complete_cb(False, action, pkg_name, err)
-
-                if action == "install":
-                    self.snap_mgr.install_snap(pkg_name, progress_cb=_snap_prog, complete_cb=_snap_done)
-                elif action == "remove":
-                    self.snap_mgr.remove_snap(pkg_name, progress_cb=_snap_prog, complete_cb=_snap_done)
-                elif action in ["update", "upgrade"]:
-                    self.snap_mgr.update_snap(pkg_name, progress_cb=_snap_prog, complete_cb=_snap_done)
-                else:
-                    _snap_done(False, f"Unsupported snap action: {action}")
-                return
-
-            if actual_source == "docker":
-                def _docker_prog(msg: str):
-                    _safe_progress(0.5, str(msg))
-
-                def _docker_done(ok: bool, msg: str = ""):
-                    if ok:
-                        with self._lock:
-                            self.upgradable_list = [u for u in self.upgradable_list if u.get("name") != pkg_name]
+                                if self.active_transaction:
+                                    self.active_transaction["progress"] = 1.0
+                                    self.active_transaction["status"] = comp_msg
+                                    self.active_transaction["status_msg"] = comp_msg
+                            self._last_progress = 1.0
+                            progress_cb(1.0, comp_msg)
                             try:
-                                with open(UPDATES_CACHE_FILE, "w") as f:
-                                    json.dump(self.upgradable_list, f)
-                            except Exception:
-                                pass
-                        comp_msg = f"Updated container application {pkg_name}."
-                        with self._action_lock:
-                            if self.active_transaction:
-                                self.active_transaction["progress"] = 1.0
-                                self.active_transaction["status"] = comp_msg
-                                self.active_transaction["status_msg"] = comp_msg
-                        self._last_progress = 1.0
-                        progress_cb(1.0, comp_msg)
-                        complete_cb(True, action, pkg_name, "")
-                        target_tx = self.active_transaction
-                        def _clear():
-                            time.sleep(1.0)
+                                complete_cb(True, action, pkg_name, "")
+                            finally:
+                                self._process_next_action()
+                        else:
                             with self._action_lock:
-                                if self.active_transaction is target_tx:
-                                    self.active_transaction = None
-                                    self._last_progress = 0.0
-                        threading.Thread(target=_clear, daemon=True).start()
-                    else:
-                        with self._action_lock:
-                            if self.active_transaction:
-                                self.active_transaction["progress"] = 0.0
-                                self.active_transaction["status"] = f"Failed: {msg}"
-                                self.active_transaction["status_msg"] = f"Failed: {msg}"
-                            self.active_transaction = None
-                            self._last_progress = 0.0
-                        progress_cb(0.0, f"Failed: {msg}")
-                        complete_cb(False, action, pkg_name, msg)
+                                if self.active_transaction:
+                                    self.active_transaction["progress"] = 0.0
+                                    self.active_transaction["status"] = f"Failed: {msg}"
+                                    self.active_transaction["status_msg"] = f"Failed: {msg}"
+                                self.active_transaction = None
+                                self._last_progress = 0.0
+                            progress_cb(0.0, f"Failed: {msg}")
+                            try:
+                                complete_cb(False, action, pkg_name, msg)
+                            finally:
+                                self._process_next_action()
 
-                if action in ["update", "upgrade"]:
-                    self.container_mgr.update_app(pkg_name, progress_callback=_docker_prog, completion_callback=_docker_done)
+                    if action in ["update", "upgrade"]:
+                        self.container_mgr.update_app(pkg_name, progress_callback=_docker_prog, completion_callback=_docker_done)
+                    elif action == "install":
+                        self.container_mgr.install_app(pkg_name, progress_callback=_docker_prog, completion_callback=_docker_done)
+                    elif action == "remove":
+                        self.container_mgr.uninstall_app(pkg_name, progress_callback=_docker_prog, completion_callback=_docker_done)
+                    else:
+                        _docker_done(False, f"Unsupported docker action: {action}")
+                    return
+
+                # Pacman / AUR execution
+                if action in ["upgrade", "update"]:
+                    if is_system_upgrade:
+                        if shutil.which("paru"):
+                            cmd = ["paru", "-Syu", "--noconfirm", "--sudoflags", "-A"]
+                        else:
+                            cmd = ["sudo", "-A", "pacman", "-Syu", "--noconfirm"]
+                    else:
+                        if source == "aur":
+                            cmd = ["paru", "-S", "--noconfirm", "--sudoflags", "-A", pkg_name]
+                        else:
+                            cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", pkg_name]
                 elif action == "install":
-                    self.container_mgr.install_app(pkg_name, progress_callback=_docker_prog, completion_callback=_docker_done)
+                    if source == "pacman":
+                        cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", "--needed", pkg_name]
+                    else:
+                        cmd = ["paru", "-S", "--noconfirm", "--needed", "--sudoflags", "-A", pkg_name]
                 elif action == "remove":
-                    self.container_mgr.uninstall_app(pkg_name, progress_callback=_docker_prog, completion_callback=_docker_done)
+                    cmd = ["sudo", "-A", "pacman", "-Rns", "--noconfirm", pkg_name]
                 else:
-                    _docker_done(False, f"Unsupported docker action: {action}")
-                return
+                    cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", pkg_name]
 
-            if action in ["upgrade", "update"]:
-                if is_system_upgrade:
-                    if shutil.which("paru"):
-                        cmd = ["paru", "-Syu", "--noconfirm", "--sudoflags", "-A"]
-                    else:
-                        cmd = ["sudo", "-A", "pacman", "-Syu", "--noconfirm"]
-                else:
-                    if source == "aur":
-                        cmd = ["paru", "-S", "--noconfirm", "--sudoflags", "-A", pkg_name]
-                    else:
-                        cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", pkg_name]
-            elif action == "install":
-                if source == "pacman":
-                    cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", "--needed", pkg_name]
-                else:
-                    cmd = ["paru", "-S", "--noconfirm", "--needed", "--sudoflags", "-A", pkg_name]
-            elif action == "remove":
-                cmd = ["sudo", "-A", "pacman", "-Rns", "--noconfirm", pkg_name]
-            else:
-                cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", pkg_name]
+                _safe_progress(0.06, "Authenticating & preparing...")
 
-            _safe_progress(0.06, "Authenticating & preparing...")
+                upgrades_set = set()
+                with self._lock:
+                    upgrades_set = {u.get("name", "").strip().lower() for u in self.upgradable_list if u.get("name")}
 
-            upgrades_set = set()
-            with self._lock:
-                upgrades_set = {u.get("name", "").strip().lower() for u in self.upgradable_list if u.get("name")}
+                parser = PacmanProgressParser(
+                    action=action,
+                    target_pkg=target_pkg,
+                    is_system_upgrade=is_system_upgrade,
+                    upgradable_pkgs=upgrades_set
+                )
 
-            parser = PacmanProgressParser(
-                action=action,
-                target_pkg=target_pkg,
-                is_system_upgrade=is_system_upgrade,
-                upgradable_pkgs=upgrades_set
-            )
-
-            try:
                 proc = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
@@ -3369,19 +3515,12 @@ class PackageManager:
                             self.active_transaction["total_packages"] = parser.total_packages
                     self._last_progress = 1.0
                     progress_cb(1.0, comp_msg)
-                    complete_cb(True, action, pkg_name, "")
                     # Background check for remaining updates
                     threading.Thread(target=self.check_updates, daemon=True).start()
-
-                    target_tx = self.active_transaction
-                    def _clear_tx():
-                        time.sleep(1.0)
-                        with self._action_lock:
-                            if self.active_transaction is target_tx:
-                                self.active_transaction = None
-                                self._last_progress = 0.0
-
-                    threading.Thread(target=_clear_tx, daemon=True).start()
+                    try:
+                        complete_cb(True, action, pkg_name, "")
+                    finally:
+                        self._process_next_action()
                 else:
                     if any("password" in l.lower() or "auth" in l.lower() for l in parser.error_lines):
                         PackageManager.clear_auth_cache()
@@ -3395,7 +3534,10 @@ class PackageManager:
                         self.active_transaction = None
                         self._last_progress = 0.0
                     progress_cb(0.0, err_status)
-                    complete_cb(False, action, pkg_name, raw_err)
+                    try:
+                        complete_cb(False, action, pkg_name, raw_err)
+                    finally:
+                        self._process_next_action()
 
             except Exception as e:
                 err_status = f"Error: {e}"
@@ -3407,7 +3549,10 @@ class PackageManager:
                     self.active_transaction = None
                     self._last_progress = 0.0
                 progress_cb(0.0, err_status)
-                complete_cb(False, action, pkg_name, str(e))
+                try:
+                    complete_cb(False, action, pkg_name, str(e))
+                finally:
+                    self._process_next_action()
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -3751,10 +3896,13 @@ class SnapManager:
     def __init__(self):
         self._lock = threading.Lock()
         self._search_cache: Dict[str, List[Dict[str, Any]]] = {}
+        self.is_setting_up: bool = False
+        self.setup_progress_text: str = ""
+        self.setup_progress_fraction: float = 0.0
 
     def is_snapd_installed(self) -> bool:
-        """Check if snap command is available in PATH."""
-        return shutil.which("snap") is not None
+        """Check if snap command is available in PATH or at /usr/bin/snap."""
+        return shutil.which("snap") is not None or Path("/usr/bin/snap").exists()
 
     def is_snapd_running(self) -> bool:
         """Check if snapd daemon or socket is active."""
@@ -3793,53 +3941,166 @@ class SnapManager:
             "symlink_ok": symlink_ok,
             "status_code": status_code,
             "status_text": status_text,
+            "is_setting_up": self.is_setting_up,
         }
+
+    @staticmethod
+    def _parse_build_error(stderr: Optional[str], stdout: Optional[str]) -> str:
+        combined = (stderr or "") + "\n" + (stdout or "")
+        lines = [line.strip() for line in combined.splitlines() if line.strip()]
+        if not lines:
+            return "Unknown compilation or installation error."
+
+        for line in lines:
+            if "db.lck" in line or "could not lock database" in line or "unable to lock database" in line:
+                return "Pacman database is locked by another running process (/var/lib/pacman/db.lck)."
+            if "sudo: a password is required" in line.lower() or "authentication failure" in line.lower():
+                return "Authentication failed or root privileges required."
+
+        error_lines = []
+        for line in lines:
+            l_lower = line.lower()
+            if l_lower.startswith("==> error:") or l_lower.startswith("error:"):
+                clean = line
+                if clean.startswith("==> ERROR:"):
+                    clean = clean[10:].strip()
+                elif clean.lower().startswith("error:"):
+                    clean = clean[6:].strip()
+                if clean:
+                    error_lines.append(clean)
+            elif "failure occurred in" in l_lower or "failed to build" in l_lower:
+                error_lines.append(line)
+
+        if error_lines:
+            return error_lines[-1]
+
+        filtered = [
+            l for l in lines
+            if not l.startswith("==> WARNING: Using existing $srcdir")
+            and "... Passed" not in l
+            and not l.startswith("->")
+            and not l.startswith("==> Making package:")
+        ]
+        if filtered:
+            return filtered[-1][:140]
+
+        return lines[-1][:140]
 
     def setup_snapd(self, progress_callback=None, completion_callback=None):
         """Seamless automated setup: install snapd via paru/pacman, enable socket, link /snap."""
-        def _task():
-            env = os.environ.copy()
-            if ASKPASS_SCRIPT.exists():
-                env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
-            env["LC_ALL"] = "C"
+        with self._lock:
+            if self.is_setting_up:
+                if completion_callback:
+                    completion_callback(False, "Snap service configuration is already in progress.")
+                return
+            self.is_setting_up = True
+            self.setup_progress_text = "Starting Snap service setup..."
+            self.setup_progress_fraction = 0.05
 
-            # Step 1: Install snapd if missing
-            if not shutil.which("snap"):
-                if progress_callback:
-                    progress_callback(0.2, "Installing snapd from repositories/AUR...")
-                if shutil.which("paru"):
-                    cmd = ["paru", "-S", "--noconfirm", "--needed", "--sudoflags", "-A", "snapd"]
+        def _report(frac: float, msg: str):
+            self.setup_progress_fraction = frac
+            self.setup_progress_text = msg
+            if progress_callback:
+                progress_callback(frac, msg)
+
+        def _task():
+            try:
+                env = os.environ.copy()
+                if ASKPASS_SCRIPT.exists():
+                    env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
+                env["LC_ALL"] = "C"
+
+                # Step 1: Install snapd if missing
+                is_installed = self.is_snapd_installed()
+                if not is_installed:
+                    try:
+                        chk = subprocess.run(["pacman", "-Q", "snapd"], capture_output=True, timeout=5)
+                        if chk.returncode == 0:
+                            is_installed = True
+                    except Exception:
+                        pass
+
+                if not is_installed:
+                    # Check if pacman lock exists
+                    if Path("/var/lib/pacman/db.lck").exists():
+                        p1 = subprocess.run(["pgrep", "-x", "pacman"], capture_output=True)
+                        p2 = subprocess.run(["pgrep", "-x", "paru"], capture_output=True)
+                        if p1.returncode == 0 or p2.returncode == 0:
+                            _report(0.1, "Waiting for existing package manager to finish...")
+                            for _ in range(15):
+                                time.sleep(1)
+                                if not Path("/var/lib/pacman/db.lck").exists():
+                                    break
+                            if Path("/var/lib/pacman/db.lck").exists():
+                                if completion_callback:
+                                    completion_callback(False, "Pacman database is currently locked by another process (/var/lib/pacman/db.lck).")
+                                return
+
+                    # Check if a pre-compiled snapd package exists in cache
+                    pkg_installed = False
+                    candidate_dirs = [
+                        Path.home() / ".cache" / "paru" / "clone" / "snapd",
+                        Path.home() / ".cache" / "yay" / "snapd",
+                    ]
+                    for c_dir in candidate_dirs:
+                        if c_dir.exists():
+                            zst_files = sorted(c_dir.glob("snapd-*.pkg.tar.zst"), key=lambda p: p.stat().st_mtime, reverse=True)
+                            if zst_files:
+                                cached_pkg = zst_files[0]
+                                _report(0.2, f"Installing pre-built snapd package from cache ({cached_pkg.name})...")
+                                res_pkg = subprocess.run(
+                                    ["sudo", "-A", "pacman", "-U", "--noconfirm", "--needed", str(cached_pkg)],
+                                    capture_output=True, text=True, env=env, timeout=120
+                                )
+                                if res_pkg.returncode == 0:
+                                    pkg_installed = True
+                                    break
+
+                    if not pkg_installed:
+                        _report(0.2, "Installing snapd from repositories/AUR (this may take 1-2 minutes)...")
+                        if shutil.which("paru"):
+                            cmd = ["paru", "-S", "--noconfirm", "--needed", "--sudoflags", "-A", "snapd"]
+                        else:
+                            cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", "--needed", "snapd"]
+                        res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=300)
+                        if res.returncode != 0:
+                            err_msg = self._parse_build_error(res.stderr, res.stdout)
+                            if completion_callback:
+                                completion_callback(False, f"Failed to install snapd: {err_msg}")
+                            return
                 else:
-                    cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", "--needed", "snapd"]
-                res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=300)
+                    _report(0.5, "Snap package found, verifying service and confinement symlinks...")
+
+                # Step 2: Enable and start snapd.socket
+                _report(0.6, "Enabling and starting snapd.socket...")
+                res = subprocess.run(["sudo", "-A", "systemctl", "enable", "--now", "snapd.socket"],
+                                     capture_output=True, text=True, env=env, timeout=30)
                 if res.returncode != 0:
+                    err_msg = self._parse_build_error(res.stderr, res.stdout)
                     if completion_callback:
-                        completion_callback(False, f"Failed to install snapd: {res.stderr or res.stdout}")
+                        completion_callback(False, f"Failed enabling snapd.socket: {err_msg}")
                     return
 
-            # Step 2: Enable and start snapd.socket
-            if progress_callback:
-                progress_callback(0.6, "Enabling and starting snapd.socket...")
-            res = subprocess.run(["sudo", "-A", "systemctl", "enable", "--now", "snapd.socket"],
-                                 capture_output=True, text=True, env=env, timeout=30)
-            if res.returncode != 0:
+                # Step 3: Symlink /var/lib/snapd/snap /snap
+                _report(0.8, "Creating /snap classical confinement symlink...")
+                if not (Path("/snap").is_symlink() or Path("/snap").exists()):
+                    res_ln = subprocess.run(["sudo", "-A", "ln", "-s", "/var/lib/snapd/snap", "/snap"],
+                                           capture_output=True, text=True, env=env, timeout=10)
+                    if res_ln.returncode != 0 and not Path("/snap").exists():
+                        subprocess.run(["sudo", "-A", "mkdir", "-p", "/var/lib/snapd/snap"], capture_output=True, env=env, timeout=5)
+                        subprocess.run(["sudo", "-A", "ln", "-s", "/var/lib/snapd/snap", "/snap"], capture_output=True, env=env, timeout=10)
+
+                # Step 4: Verify socket
+                time.sleep(1)
+                _report(1.0, "Snap service ready!")
                 if completion_callback:
-                    completion_callback(False, f"Failed enabling snapd.socket: {res.stderr or res.stdout}")
-                return
-
-            # Step 3: Symlink /var/lib/snapd/snap /snap
-            if progress_callback:
-                progress_callback(0.8, "Creating /snap classical confinement symlink...")
-            if not Path("/snap").exists():
-                subprocess.run(["sudo", "-A", "ln", "-s", "/var/lib/snapd/snap", "/snap"],
-                               capture_output=True, env=env, timeout=10)
-
-            # Step 4: Verify socket
-            time.sleep(1)
-            if progress_callback:
-                progress_callback(1.0, "Snap service ready!")
-            if completion_callback:
-                completion_callback(True, "Snap Store successfully configured and ready!")
+                    completion_callback(True, "Snap Store successfully configured and ready!")
+            except Exception as e:
+                if completion_callback:
+                    completion_callback(False, f"Error configuring snapd: {e}")
+            finally:
+                with self._lock:
+                    self.is_setting_up = False
 
         threading.Thread(target=_task, daemon=True).start()
 
@@ -4665,6 +4926,8 @@ class ContainerManager:
         self._lock = threading.Lock()
         self.SHORTCUTS_DIR.mkdir(parents=True, exist_ok=True)
         self.active_container_installs: Set[str] = set()
+        self.is_configuring: bool = False
+        self.configuring_progress_text: str = ""
 
     def is_app_installing(self, app_id: str) -> bool:
         return app_id in self.active_container_installs
@@ -4723,6 +4986,7 @@ class ContainerManager:
             "container_name": self.CONTAINER_NAME,
             "status_code": status_code,
             "status_text": status_text,
+            "is_configuring": self.is_configuring,
         }
 
     def stop_container(self, completion_callback=None):
@@ -4775,65 +5039,75 @@ class ContainerManager:
 
     def ensure_container_configured(self, progress_callback: Optional[Callable[[str], None]] = None) -> Tuple[bool, str]:
         """Auto create and start Docker container if not running."""
-        status = self.get_status()
-        if status["status_code"] == "ready":
-            return True, "Container already configured and active."
-        
-        if status["status_code"] == "missing_engine":
-            return False, "Docker is not installed or daemon is not running."
+        with self._lock:
+            if self.is_configuring:
+                return False, "Docker container configuration is already in progress."
+            self.is_configuring = True
+            self.configuring_progress_text = "Initializing Docker environment..."
 
-        if status["status_code"] == "stopped":
+        def _report(msg: str):
+            self.configuring_progress_text = msg
             if progress_callback:
-                progress_callback(f"Starting existing '{self.CONTAINER_NAME}' container...")
-            proc = subprocess.run(["docker", "start", self.CONTAINER_NAME], capture_output=True, text=True, timeout=10)
-            if proc.returncode == 0:
-                subprocess.run(["docker", "update", "--restart", "unless-stopped", self.CONTAINER_NAME], capture_output=True, timeout=5)
-                if progress_callback:
-                    progress_callback("Installing baseline GUI libraries (mesa, x11, fonts)...")
-                subprocess.run(["docker", "exec", self.CONTAINER_NAME, "apk", "add", "--no-cache", "mesa-gl", "mesa-dri-gallium", "mesa-egl", "libx11", "font-noto"], capture_output=True, timeout=60)
-                return True, "Started existing aura-box container."
-            return False, f"Failed to start container: {proc.stderr}"
+                progress_callback(msg)
 
-        # Create and start new container
-        if progress_callback:
-            progress_callback(f"Initializing '{self.CONTAINER_NAME}' container environment (Alpine Linux)...")
+        try:
+            status = self.get_status()
+            if status["status_code"] == "ready":
+                return True, "Container already configured and active."
+            
+            if status["status_code"] == "missing_engine":
+                return False, "Docker is not installed or daemon is not running."
 
-        uid = os.getuid()
-        gid = os.getgid()
-        home = str(Path.home())
-        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{uid}")
-        display = os.environ.get("DISPLAY", ":0")
-        wayland = os.environ.get("WAYLAND_DISPLAY", "wayland-1")
+            if status["status_code"] == "stopped":
+                _report(f"Starting existing '{self.CONTAINER_NAME}' container...")
+                proc = subprocess.run(["docker", "start", self.CONTAINER_NAME], capture_output=True, text=True, timeout=10)
+                if proc.returncode == 0:
+                    subprocess.run(["docker", "update", "--restart", "unless-stopped", self.CONTAINER_NAME], capture_output=True, timeout=5)
+                    _report("Installing baseline GUI libraries (mesa, x11, fonts)...")
+                    subprocess.run(["docker", "exec", self.CONTAINER_NAME, "apk", "add", "--no-cache", "mesa-gl", "mesa-dri-gallium", "mesa-egl", "libx11", "font-noto"], capture_output=True, timeout=60)
+                    return True, "Started existing aura-box container."
+                return False, f"Failed to start container: {proc.stderr}"
 
-        cmd = [
-            "docker", "run", "-d",
-            "--name", self.CONTAINER_NAME,
-            "--restart", "unless-stopped",
-            "--ipc=host",
-            "--net=host",
-            "-v", "/tmp/.X11-unix:/tmp/.X11-unix:ro",
-            "-v", f"{runtime_dir}:{runtime_dir}:ro",
-            "-v", f"{home}:{home}",
-            "-e", f"DISPLAY={display}",
-            "-e", f"WAYLAND_DISPLAY={wayland}",
-            "-e", f"XDG_RUNTIME_DIR={runtime_dir}",
-            "-e", f"HOME={home}",
-            "alpine:latest",
-            "tail", "-f", "/dev/null"
-        ]
-        
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        if proc.returncode != 0:
-            return False, f"Failed to create container: {proc.stderr}"
+            # Create and start new container
+            _report(f"Initializing '{self.CONTAINER_NAME}' container environment (Alpine Linux)...")
 
-        if progress_callback:
-            progress_callback("Installing baseline GUI libraries (mesa, x11, fonts)...")
-        subprocess.run(["docker", "exec", self.CONTAINER_NAME, "apk", "add", "--no-cache", "mesa-gl", "mesa-dri-gallium", "mesa-egl", "libx11", "font-noto"], capture_output=True, timeout=60)
+            uid = os.getuid()
+            gid = os.getgid()
+            home = str(Path.home())
+            runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{uid}")
+            display = os.environ.get("DISPLAY", ":0")
+            wayland = os.environ.get("WAYLAND_DISPLAY", "wayland-1")
 
-        if progress_callback:
-            progress_callback("Container environment configured successfully!")
+            cmd = [
+                "docker", "run", "-d",
+                "--name", self.CONTAINER_NAME,
+                "--restart", "unless-stopped",
+                "--ipc=host",
+                "--net=host",
+                "-v", "/tmp/.X11-unix:/tmp/.X11-unix:ro",
+                "-v", f"{runtime_dir}:{runtime_dir}:ro",
+                "-v", f"{home}:{home}",
+                "-e", f"DISPLAY={display}",
+                "-e", f"WAYLAND_DISPLAY={wayland}",
+                "-e", f"XDG_RUNTIME_DIR={runtime_dir}",
+                "-e", f"HOME={home}",
+                "alpine:latest",
+                "tail", "-f", "/dev/null"
+            ]
+            
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if proc.returncode != 0:
+                return False, f"Failed to create container: {proc.stderr}"
 
-        return True, "Container successfully initialized and ready."
+            _report("Installing baseline GUI libraries (mesa, x11, fonts)...")
+            subprocess.run(["docker", "exec", self.CONTAINER_NAME, "apk", "add", "--no-cache", "mesa-gl", "mesa-dri-gallium", "mesa-egl", "libx11", "font-noto"], capture_output=True, timeout=60)
+
+            _report("Container environment configured successfully!")
+            return True, "Container successfully initialized and ready."
+        finally:
+            with self._lock:
+                self.is_configuring = False
+                self.configuring_progress_text = ""
 
     def list_apps(self, query: str = "") -> List[Dict[str, Any]]:
         """List container apps: curated + installed shortcuts + Docker Hub search."""

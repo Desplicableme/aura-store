@@ -64,6 +64,10 @@ class AuraApplication(Adw.Application):
                 action = "installed"
             elif args[1] in ["--docker", "-D", "--containers", "-C"]:
                 action = "docker"
+            elif args[1] in ["--snap", "-S"]:
+                action = "snap"
+            elif args[1] in ["--storage", "--maintenance"]:
+                action = "storage"
             elif args[1] in ["-m", "--maximize"]:
                 action = "maximize"
             elif args[1] in ["-f", "--fullscreen"]:
@@ -114,6 +118,18 @@ class AuraApplication(Adw.Application):
             if target:
                 target.set_active(True)
             self.window._on_sidebar_channel_click("docker")
+        elif action == "snap":
+            self.window.back_btn.set_visible(False)
+            target = self.window.sidebar_buttons.get("snap")
+            if target:
+                target.set_active(True)
+            self.window._on_sidebar_channel_click("snap")
+        elif action == "storage":
+            self.window.back_btn.set_visible(False)
+            target = self.window.sidebar_buttons.get("storage")
+            if target:
+                target.set_active(True)
+            self.window._on_sidebar_channel_click("storage")
         elif action == "maximize":
             self.window.maximize()
         elif action == "fullscreen":

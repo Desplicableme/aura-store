@@ -57,6 +57,15 @@ Instant status of all pending system upgrades with single-click batch updates an
 
 ---
 
+### 🛍️ Snap Store Integration & Storage Cleaner
+Access thousands of canonical and community Snaps alongside instant disk and build cache pruning for Pacman, Paru, Docker, and system journals.
+
+| Snap Store | Storage & Caches |
+| :---: | :---: |
+| ![Snap Store](screenshots/snap.png) | ![Storage & Caches](screenshots/storage.png) |
+
+---
+
 ### 🖥️ Fullscreen 3-Column Experience
 Seamlessly adapts from narrow half-screen tiling layouts to wide 1080p/4K triple-column layouts via dynamic Libadwaita breakpoints.
 

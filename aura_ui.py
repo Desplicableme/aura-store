@@ -223,7 +223,7 @@ scrolledwindow viewport {
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 18px;
     margin: 12px 0 12px 12px;
-    min-width: 220px;
+    min-width: 210px;
     padding: 14px 10px 16px 10px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
@@ -367,7 +367,7 @@ scrolledwindow viewport {
     background: linear-gradient(135deg, rgba(28, 144, 237, 0.09), rgba(255, 255, 255, 0.02));
     border: 1px solid rgba(28, 144, 237, 0.22);
     border-radius: 16px;
-    padding: 18px 24px;
+    padding: 16px 18px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
     transition: all 180ms ease;
 }
@@ -1522,7 +1522,7 @@ flowboxchild:hover {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 20px;
-    padding: 38px 48px;
+    padding: 24px 24px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
 }
 
@@ -1530,7 +1530,7 @@ flowboxchild:hover {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 18px;
-    padding: 22px 32px;
+    padding: 20px 20px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
 }
 
@@ -1610,7 +1610,7 @@ flowboxchild:hover {
     background-color: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px;
-    padding: 20px 24px;
+    padding: 16px 18px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
     margin-bottom: 16px;
 }
@@ -2076,7 +2076,7 @@ class MacHeroCarousel(Gtk.Overlay):
         watermark_img.set_halign(Gtk.Align.END)
         watermark_img.set_valign(Gtk.Align.CENTER)
         watermark_img.set_hexpand(True)
-        watermark_img.set_margin_end(120)
+        watermark_img.set_margin_end(48)
         watermark_img.set_can_target(False)
         watermark_layer.append(watermark_img)
 
@@ -2088,12 +2088,12 @@ class MacHeroCarousel(Gtk.Overlay):
         content_box.set_vexpand(True)
         content_box.set_valign(Gtk.Align.FILL)
 
-        # Left Column: Tag chip, Title, Subtitle, Action button (generous 64px margin start)
+        # Left Column: Tag chip, Title, Subtitle, Action button
         left_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         left_col.set_hexpand(True)
         left_col.set_valign(Gtk.Align.CENTER)
         left_col.set_halign(Gtk.Align.START)
-        left_col.set_margin_start(64)
+        left_col.set_margin_start(56)
 
         tag_lbl = Gtk.Label(label=slide.get("tag", "FEATURED"))
         tag_lbl.add_css_class("mac-hero-tag")
@@ -2110,7 +2110,7 @@ class MacHeroCarousel(Gtk.Overlay):
         sub_lbl.add_css_class("mac-hero-sub")
         sub_lbl.set_halign(Gtk.Align.START)
         sub_lbl.set_wrap(True)
-        sub_lbl.set_wrap_mode(Pango.WrapMode.WORD)
+        sub_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         sub_lbl.set_lines(2)
         sub_lbl.set_max_width_chars(52)
         sub_lbl.set_ellipsize(Pango.EllipsizeMode.END)
@@ -2146,11 +2146,11 @@ class MacHeroCarousel(Gtk.Overlay):
 
         content_box.append(left_col)
 
-        # Right Column: Dead-Centered Squircle Icon Container (60px margin end)
+        # Right Column: Dead-Centered Squircle Icon Container
         right_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         right_col.set_valign(Gtk.Align.CENTER)
         right_col.set_halign(Gtk.Align.END)
-        right_col.set_margin_end(60)
+        right_col.set_margin_end(56)
 
         icon_box = Gtk.Box()
         icon_box.add_css_class("mac-hero-squircle")
@@ -2237,7 +2237,7 @@ class AuraWindow(Adw.ApplicationWindow):
         super().__init__(application=app, title="Aura Store")
         self.pm = package_manager
         self.set_default_size(1180, 760)
-        self.set_size_request(800, 560)
+        self.set_size_request(720, 500)
 
         # Register custom icons search paths (e.g. docker-symbolic, aura-icon)
         theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
@@ -2289,12 +2289,15 @@ class AuraWindow(Adw.ApplicationWindow):
         # Header Bar (Back button, Refresh, Status)
         self.header_bar = self._build_headerbar()
 
-        # Content Main Page Stack
+        # Content Main Page Stack - Non-homogeneous so pages never force layout constraints on each other
         self.main_stack = Gtk.Stack()
         self.main_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self.main_stack.set_transition_duration(180)
         self.main_stack.set_hexpand(True)
         self.main_stack.set_vexpand(True)
+        self.main_stack.set_hhomogeneous(False)
+        self.main_stack.set_vhomogeneous(False)
+        self.main_stack.set_interpolate_size(True)
 
         # Page 1: Discover (Top Showcase Carousel + Curated 2-Column Sections)
         self.discover_page = self._build_discover_page()
@@ -2346,22 +2349,27 @@ class AuraWindow(Adw.ApplicationWindow):
 
         self.main_stack.set_visible_child_name("discover")
 
-        # Responsive Breakpoints for multi-column grids:
-        # Fullscreen / Ultra-wide (>= 1600px): 4 columns
-        # Wide (1200px - 1599px): 3 columns
-        # Standard Window (780px - 1199px): 2 columns
-        # Compact (< 780px): 1 column
-        bp_ultrawide = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 1600px'))
+        # Responsive Breakpoints for multi-column grids (calibrated with 232px sidebar):
+        # Fullscreen / Ultra-wide (>= 1580px): 4 columns
+        # Wide (1220px - 1579px): 3 columns
+        # Standard Window (860px - 1219px): 2 columns
+        # Compact (< 860px): 1 column
+        bp_ultrawide = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 1580px'))
         bp_ultrawide.connect('apply', lambda b: self._set_grid_cols(4))
         bp_ultrawide.connect('unapply', lambda b: self._sync_responsive_cols())
         self.add_breakpoint(bp_ultrawide)
 
-        bp_wide = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 1200px and max-width: 1599px'))
+        bp_wide = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 1220px and max-width: 1579px'))
         bp_wide.connect('apply', lambda b: self._set_grid_cols(3))
         bp_wide.connect('unapply', lambda b: self._sync_responsive_cols())
         self.add_breakpoint(bp_wide)
 
-        bp_compact = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('max-width: 779px'))
+        bp_standard = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('min-width: 860px and max-width: 1219px'))
+        bp_standard.connect('apply', lambda b: self._set_grid_cols(2))
+        bp_standard.connect('unapply', lambda b: self._sync_responsive_cols())
+        self.add_breakpoint(bp_standard)
+
+        bp_compact = Adw.Breakpoint.new(Adw.breakpoint_condition_parse('max-width: 859px'))
         bp_compact.connect('apply', lambda b: self._set_grid_cols(1))
         bp_compact.connect('unapply', lambda b: self._sync_responsive_cols())
         self.add_breakpoint(bp_compact)
@@ -2378,12 +2386,13 @@ class AuraWindow(Adw.ApplicationWindow):
         self._load_data_async()
 
     def _sync_responsive_cols(self):
-        w = self.get_width()
-        if self.is_fullscreen() or w >= 1600:
+        w = self.get_width() if hasattr(self, "get_width") else 0
+        content_w = max(300, (w - 232)) if w > 0 else 800
+        if self.is_fullscreen() or content_w >= 1340:
             self._set_grid_cols(4)
-        elif 1200 <= w < 1600:
+        elif content_w >= 940:
             self._set_grid_cols(3)
-        elif 780 <= w < 1200:
+        elif content_w >= 560:
             self._set_grid_cols(2)
         else:
             self._set_grid_cols(1)
@@ -2394,20 +2403,21 @@ class AuraWindow(Adw.ApplicationWindow):
             min_c = getattr(flow, "_aura_min_cols", 1)
             max_c = getattr(flow, "_aura_max_cols", 4)
             target = max(min_c, min(cols, max_c))
-            flow.set_min_children_per_line(target)
+            flow.set_min_children_per_line(1)
             flow.set_max_children_per_line(target)
 
     def _get_target_cols(self) -> int:
         if self.is_fullscreen():
             return 4
         w = self.get_width() if hasattr(self, "get_width") else 0
-        if w >= 1600:
+        content_w = max(300, (w - 232)) if w > 0 else 800
+        if content_w >= 1340:
             return 4
-        elif 1200 <= w < 1600:
+        elif content_w >= 940:
             return 3
-        elif 780 <= w < 1200:
+        elif content_w >= 560:
             return 2
-        elif 0 < w < 780:
+        elif 0 < content_w < 560:
             return 1
         return getattr(self, "_active_cols", 2)
 
@@ -2886,6 +2896,7 @@ class AuraWindow(Adw.ApplicationWindow):
         self.header_title.add_css_class("mac-header-title")
         self.header_title.set_halign(Gtk.Align.START)
         self.header_title.set_valign(Gtk.Align.CENTER)
+        self.header_title.set_ellipsize(Pango.EllipsizeMode.END)
         header.append(self.header_title)
 
         # Spacer
@@ -2908,6 +2919,7 @@ class AuraWindow(Adw.ApplicationWindow):
         pill_box.append(self.header_progress_spinner)
 
         self.header_progress_label = Gtk.Label(label="")
+        self.header_progress_label.set_ellipsize(Pango.EllipsizeMode.END)
         pill_box.append(self.header_progress_label)
 
         self.header_progress_pill.set_child(pill_box)
@@ -3097,6 +3109,9 @@ class AuraWindow(Adw.ApplicationWindow):
         header_sub = Gtk.Label(label="Curated applications & high-performance software")
         header_sub.add_css_class("mac-page-subtitle")
         header_sub.set_halign(Gtk.Align.START)
+        header_sub.set_wrap(True)
+        header_sub.set_wrap_mode(Pango.WrapMode.WORD)
+        header_sub.set_ellipsize(Pango.EllipsizeMode.END)
         header_row.append(header_sub)
         box.append(header_row)
 
@@ -3299,9 +3314,15 @@ class AuraWindow(Adw.ApplicationWindow):
         self.browse_hero_card.append(hero_desc)
 
         # Quick Search Suggestion Chips
-        chips_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        chips_box = Gtk.FlowBox()
+        chips_box.set_selection_mode(Gtk.SelectionMode.NONE)
         chips_box.set_halign(Gtk.Align.CENTER)
+        chips_box.set_valign(Gtk.Align.CENTER)
         chips_box.set_margin_top(6)
+        chips_box.set_row_spacing(8)
+        chips_box.set_column_spacing(8)
+        chips_box.set_min_children_per_line(1)
+        chips_box.set_max_children_per_line(5)
 
         suggestions = [
             ("🌐 Browsers", "browser"),
@@ -3385,11 +3406,15 @@ class AuraWindow(Adw.ApplicationWindow):
         self.updates_count_label = Gtk.Label(label="Checking for updates...")
         self.updates_count_label.add_css_class("mac-section-title")
         self.updates_count_label.set_halign(Gtk.Align.START)
+        self.updates_count_label.set_ellipsize(Pango.EllipsizeMode.END)
         title_vbox.append(self.updates_count_label)
 
         sub_label = Gtk.Label(label="Updates available for installed packages and software.")
         sub_label.add_css_class("dim-label")
         sub_label.set_halign(Gtk.Align.START)
+        sub_label.set_wrap(True)
+        sub_label.set_wrap_mode(Pango.WrapMode.WORD)
+        sub_label.set_ellipsize(Pango.EllipsizeMode.END)
         title_vbox.append(sub_label)
         updates_header_row.append(title_vbox)
 
@@ -3609,6 +3634,7 @@ class AuraWindow(Adw.ApplicationWindow):
         self.installed_header_label = Gtk.Label(label=f"Installed Applications ({num_inst})")
         self.installed_header_label.add_css_class("mac-section-title")
         self.installed_header_label.set_halign(Gtk.Align.START)
+        self.installed_header_label.set_ellipsize(Pango.EllipsizeMode.END)
         header_box.append(self.installed_header_label)
 
         spacer = Gtk.Box()
@@ -3750,6 +3776,7 @@ class AuraWindow(Adw.ApplicationWindow):
         self.container_title_lbl = Gtk.Label(label="Aura Box Sandbox")
         self.container_title_lbl.add_css_class("mac-spotlight-title")
         self.container_title_lbl.set_halign(Gtk.Align.START)
+        self.container_title_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         c_status_row.append(self.container_title_lbl)
 
         self.container_status_pill = Gtk.Label(label="Checking...")
@@ -3764,7 +3791,7 @@ class AuraWindow(Adw.ApplicationWindow):
         self.container_desc_lbl.add_css_class("mac-spotlight-desc")
         self.container_desc_lbl.set_halign(Gtk.Align.START)
         self.container_desc_lbl.set_wrap(True)
-        self.container_desc_lbl.set_wrap_mode(Pango.WrapMode.WORD)
+        self.container_desc_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         self.container_desc_lbl.set_lines(2)
         self.container_desc_lbl.set_max_width_chars(65)
         c_info_box.append(self.container_desc_lbl)
@@ -4070,7 +4097,7 @@ class AuraWindow(Adw.ApplicationWindow):
         desc_lbl.set_xalign(0.0)
         desc_lbl.set_hexpand(True)
         desc_lbl.set_wrap(True)
-        desc_lbl.set_wrap_mode(Pango.WrapMode.WORD)
+        desc_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         desc_lbl.set_lines(2)
         desc_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         info_col.append(desc_lbl)
@@ -4228,6 +4255,9 @@ class AuraWindow(Adw.ApplicationWindow):
         page_subtitle = Gtk.Label(label="Universal Linux packages with isolated sandbox & automatic updates from Canonical")
         page_subtitle.add_css_class("mac-page-subtitle")
         page_subtitle.set_halign(Gtk.Align.START)
+        page_subtitle.set_wrap(True)
+        page_subtitle.set_wrap_mode(Pango.WrapMode.WORD)
+        page_subtitle.set_ellipsize(Pango.EllipsizeMode.END)
         title_box.append(page_subtitle)
         box.append(title_box)
 
@@ -4267,6 +4297,7 @@ class AuraWindow(Adw.ApplicationWindow):
         self.snap_title_lbl = Gtk.Label(label="Canonical Snap Service")
         self.snap_title_lbl.add_css_class("mac-spotlight-title")
         self.snap_title_lbl.set_halign(Gtk.Align.START)
+        self.snap_title_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         snap_status_row.append(self.snap_title_lbl)
 
         self.snap_status_pill = Gtk.Label(label="Checking...")
@@ -4281,7 +4312,7 @@ class AuraWindow(Adw.ApplicationWindow):
         self.snap_desc_lbl.add_css_class("mac-spotlight-desc")
         self.snap_desc_lbl.set_halign(Gtk.Align.START)
         self.snap_desc_lbl.set_wrap(True)
-        self.snap_desc_lbl.set_wrap_mode(Pango.WrapMode.WORD)
+        self.snap_desc_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         self.snap_desc_lbl.set_lines(2)
         self.snap_desc_lbl.set_max_width_chars(65)
         snap_info_box.append(self.snap_desc_lbl)
@@ -4550,7 +4581,7 @@ class AuraWindow(Adw.ApplicationWindow):
         desc_lbl.set_xalign(0.0)
         desc_lbl.set_hexpand(True)
         desc_lbl.set_wrap(True)
-        desc_lbl.set_wrap_mode(Pango.WrapMode.WORD)
+        desc_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         desc_lbl.set_lines(2)
         desc_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         info_col.append(desc_lbl)
@@ -4683,12 +4714,14 @@ class AuraWindow(Adw.ApplicationWindow):
         disk_title = Gtk.Label(label="Root Storage Drive (/)")
         disk_title.add_css_class("mac-spotlight-title")
         disk_title.set_halign(Gtk.Align.START)
+        disk_title.set_ellipsize(Pango.EllipsizeMode.END)
         card_header.append(disk_title)
 
         self.storage_disk_summary_lbl = Gtk.Label(label="Calculating disk usage...")
         self.storage_disk_summary_lbl.add_css_class("dim-label")
         self.storage_disk_summary_lbl.set_halign(Gtk.Align.END)
         self.storage_disk_summary_lbl.set_hexpand(True)
+        self.storage_disk_summary_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         card_header.append(self.storage_disk_summary_lbl)
         storage_card.append(card_header)
 
@@ -4729,10 +4762,15 @@ class AuraWindow(Adw.ApplicationWindow):
 
         storage_card.append(self.storage_bar_box)
 
-        # Legend Row
-        self.storage_legend_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        # Legend Row (Responsive FlowBox allowing smooth wrapping)
+        self.storage_legend_box = Gtk.FlowBox()
+        self.storage_legend_box.set_selection_mode(Gtk.SelectionMode.NONE)
         self.storage_legend_box.set_valign(Gtk.Align.CENTER)
         self.storage_legend_box.set_margin_top(4)
+        self.storage_legend_box.set_column_spacing(16)
+        self.storage_legend_box.set_row_spacing(8)
+        self.storage_legend_box.set_min_children_per_line(1)
+        self.storage_legend_box.set_max_children_per_line(6)
 
         self.lbl_pacman_size = Gtk.Label(label="Pacman: --")
         self.lbl_aur_size = Gtk.Label(label="AUR: --")
@@ -4777,13 +4815,15 @@ class AuraWindow(Adw.ApplicationWindow):
         self.lbl_reclaimable_total = Gtk.Label(label="Scanning Caches...")
         self.lbl_reclaimable_total.add_css_class("mac-spotlight-title")
         self.lbl_reclaimable_total.set_halign(Gtk.Align.START)
+        self.lbl_reclaimable_total.set_ellipsize(Pango.EllipsizeMode.END)
         rec_info_box.append(self.lbl_reclaimable_total)
 
         rec_sub = Gtk.Label(label="Safe pruning retains current installed packages for offline rollback while cleaning unneeded archives.")
         rec_sub.add_css_class("mac-spotlight-desc")
         rec_sub.set_halign(Gtk.Align.START)
         rec_sub.set_wrap(True)
-        rec_sub.set_wrap_mode(Pango.WrapMode.WORD)
+        rec_sub.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        rec_sub.set_ellipsize(Pango.EllipsizeMode.END)
         rec_info_box.append(rec_sub)
         reclaim_card.append(rec_info_box)
 
@@ -4791,7 +4831,7 @@ class AuraWindow(Adw.ApplicationWindow):
         self.btn_clean_all_caches = Gtk.Button(label="Clean Selected Caches")
         self.btn_clean_all_caches.add_css_class("mac-btn-get")
         self.btn_clean_all_caches.set_valign(Gtk.Align.CENTER)
-        self.btn_clean_all_caches.set_size_request(180, 36)
+        self.btn_clean_all_caches.set_size_request(150, 34)
         self.btn_clean_all_caches.connect("clicked", self._on_clean_selected_caches_click)
         reclaim_card.append(self.btn_clean_all_caches)
 
@@ -4908,13 +4948,14 @@ class AuraWindow(Adw.ApplicationWindow):
         title_lbl = Gtk.Label(label=cat_data.get("name", key.capitalize()))
         title_lbl.add_css_class("mac-app-title")
         title_lbl.set_halign(Gtk.Align.START)
+        title_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         info_col.append(title_lbl)
 
         desc_lbl = Gtk.Label(label=cat_data.get("desc", ""))
         desc_lbl.add_css_class("mac-app-desc")
         desc_lbl.set_halign(Gtk.Align.START)
         desc_lbl.set_wrap(True)
-        desc_lbl.set_wrap_mode(Pango.WrapMode.WORD)
+        desc_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         desc_lbl.set_lines(2)
         desc_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         info_col.append(desc_lbl)
@@ -4930,11 +4971,13 @@ class AuraWindow(Adw.ApplicationWindow):
         size_lbl = Gtk.Label(label=f"{rec_str} Reclaimable")
         size_lbl.add_css_class("mac-app-title")
         size_lbl.set_halign(Gtk.Align.END)
+        size_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         size_col.append(size_lbl)
 
         tot_lbl = Gtk.Label(label=f"{tot_str} on disk")
         tot_lbl.add_css_class("dim-label")
         tot_lbl.set_halign(Gtk.Align.END)
+        tot_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         size_col.append(tot_lbl)
         row.append(size_col)
 
@@ -5310,7 +5353,7 @@ class AuraWindow(Adw.ApplicationWindow):
         flow._aura_max_cols = max_c
         cols = self._get_target_cols()
         target = max(min_c, min(cols, max_c))
-        flow.set_min_children_per_line(target)
+        flow.set_min_children_per_line(1)
         flow.set_max_children_per_line(target)
         flow.set_column_spacing(16)
         flow.set_row_spacing(12)
@@ -5385,7 +5428,7 @@ class AuraWindow(Adw.ApplicationWindow):
         desc_lbl.set_xalign(0.0)
         desc_lbl.set_hexpand(True)
         desc_lbl.set_wrap(True)
-        desc_lbl.set_wrap_mode(Pango.WrapMode.WORD)
+        desc_lbl.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         desc_lbl.set_lines(2)
         desc_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         desc_lbl.add_css_class("mac-app-desc")

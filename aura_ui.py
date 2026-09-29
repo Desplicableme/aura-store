@@ -2311,6 +2311,8 @@ class AuraWindow(Adw.ApplicationWindow):
         self._cached_installed_apps_flow: Optional[Gtk.FlowBox] = None
         self._registered_grids: List[Gtk.FlowBox] = []
         self._active_cols: int = 2
+        self._snap_curated_populated: bool = False
+        self._snap_curated_dirty: bool = False
 
         # Updates View Button and Card Registry for realtime status tracking
         self._updates_buttons: Dict[str, Gtk.Button] = {}
@@ -2507,6 +2509,7 @@ class AuraWindow(Adw.ApplicationWindow):
 
     def _sync_all_cards(self):
         """Dynamically refresh action button states across all registered grids when background tasks update."""
+        self._snap_curated_dirty = True
         for flow in getattr(self, "_registered_grids", []):
             child = flow.get_first_child()
             while child:
@@ -4511,7 +4514,7 @@ class AuraWindow(Adw.ApplicationWindow):
         scrolled.set_child(box)
         return scrolled
 
-    def _load_snap_view(self, query: str = ""):
+    def _load_snap_view(self, query: str = "", force_refresh: bool = False):
         """Loads and populates curated and searched snap packages and updates status."""
         snap_st = self.pm.snap_mgr.get_status()
         if snap_st["status_code"] == "ready":
@@ -4547,6 +4550,15 @@ class AuraWindow(Adw.ApplicationWindow):
             self._snap_search_timer = None
 
         if not q:
+            # If curated catalog is already populated and not marked dirty, keep existing widgets (0ms instantaneous transition)
+            if not force_refresh and getattr(self, "_snap_curated_populated", False) and not getattr(self, "_snap_curated_dirty", False):
+                if hasattr(self, "snap_spinner"):
+                    self.snap_spinner.stop()
+                    self.snap_spinner.set_visible(False)
+                self.snap_status_lbl.remove_css_class("mac-loading-shimmer")
+                self.snap_status_lbl.set_text("Curated top software from Canonical Snap Store")
+                return
+
             if hasattr(self, "snap_spinner"):
                 self.snap_spinner.set_visible(True)
                 self.snap_spinner.start()
@@ -4569,11 +4581,14 @@ class AuraWindow(Adw.ApplicationWindow):
                     self.snap_spinner.set_visible(False)
                 self.snap_status_lbl.remove_css_class("mac-loading-shimmer")
                 self.snap_status_lbl.set_text("Curated top software from Canonical Snap Store")
+                self._snap_curated_populated = True
+                self._snap_curated_dirty = False
                 self._sync_responsive_cols()
                 return False
 
             GLib.idle_add(_populate_curated)
         else:
+            self._snap_curated_dirty = True
             if hasattr(self, "snap_spinner"):
                 self.snap_spinner.set_visible(True)
                 self.snap_spinner.start()
@@ -4629,7 +4644,8 @@ class AuraWindow(Adw.ApplicationWindow):
         def _done(ok, msg):
             def _ui():
                 btn.set_sensitive(True)
-                self._load_snap_view(self.snap_search_entry.get_text())
+                self._snap_curated_dirty = True
+                self._load_snap_view(self.snap_search_entry.get_text(), force_refresh=True)
                 if ok:
                     self.show_toast("✓ " + msg)
                 else:
@@ -4656,7 +4672,7 @@ class AuraWindow(Adw.ApplicationWindow):
                 self.pm.snap_mgr.disable_snapd(
                     purge_packages=purge,
                     progress_callback=lambda f, m: GLib.idle_add(lambda: self.show_toast(m)),
-                    completion_callback=lambda ok, m: GLib.idle_add(lambda: (self.show_toast(m), self._load_snap_view()))
+                    completion_callback=lambda ok, m: GLib.idle_add(lambda: (setattr(self, "_snap_curated_dirty", True), self.show_toast(m), self._load_snap_view(force_refresh=True)))
                 )
 
         dlg.connect("response", _on_resp)

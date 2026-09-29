@@ -2134,6 +2134,19 @@ class PackageManager:
         _save_featured_state(self._featured_rotation_offset, self._last_featured_shown)
         self._current_featured_apps: Optional[List[Dict[str, Any]]] = None
 
+        # Pre-warm Snap & Container manager caches in background thread for 0ms page navigation
+        def _prewarm_managers():
+            try:
+                self.snap_mgr.get_status()
+                self.snap_mgr.get_installed_snaps()
+            except Exception:
+                pass
+            try:
+                self.container_mgr.get_status()
+            except Exception:
+                pass
+        threading.Thread(target=_prewarm_managers, daemon=True).start()
+
     def refresh_installed(self):
         """Quickly reload the list of installed packages and their versions."""
         try:
@@ -3903,6 +3916,16 @@ class SnapManager:
         self._status_cache_time: float = 0.0
         self._installed_snaps_cache: Optional[List[Dict[str, Any]]] = None
         self._installed_snaps_cache_time: float = 0.0
+        self._installed_snaps_names: Set[str] = set()
+
+    def invalidate_cache(self):
+        """Invalidate all in-memory status and installed snap caches."""
+        with self._lock:
+            self._installed_snaps_cache = None
+            self._installed_snaps_cache_time = 0.0
+            self._installed_snaps_names = set()
+            self._status_cache = None
+            self._status_cache_time = 0.0
 
     def is_snapd_installed(self) -> bool:
         """Check if snap command is available in PATH or at /usr/bin/snap."""
@@ -3923,7 +3946,7 @@ class SnapManager:
     def get_status(self, force_refresh: bool = False) -> Dict[str, Any]:
         """Check snap binary, systemd socket, and /snap symlink status."""
         now = time.time()
-        if not force_refresh and hasattr(self, "_status_cache") and self._status_cache and (now - getattr(self, "_status_cache_time", 0.0) < 4.0):
+        if not force_refresh and hasattr(self, "_status_cache") and self._status_cache and (now - getattr(self, "_status_cache_time", 0.0) < 10.0):
             res = dict(self._status_cache)
             res["is_setting_up"] = self.is_setting_up
             return res
@@ -4149,10 +4172,12 @@ class SnapManager:
         threading.Thread(target=_task, daemon=True).start()
 
     def is_snap_installed(self, name: str) -> bool:
-        """Check if a snap package is installed locally."""
+        """Check if a snap package is installed locally with O(1) in-memory lookup."""
         clean = (name or "").strip().lower()
         if not clean:
             return False
+        if hasattr(self, "_installed_snaps_cache") and self._installed_snaps_cache is not None:
+            return clean in getattr(self, "_installed_snaps_names", set())
         try:
             snaps_dir = Path("/var/lib/snapd/snaps")
             if snaps_dir.exists():
@@ -4166,28 +4191,38 @@ class SnapManager:
         except Exception:
             pass
         try:
-            installed = self.get_installed_snaps()
-            return any(s.get("name", "").lower() == clean for s in installed)
+            self.get_installed_snaps()
+            return clean in getattr(self, "_installed_snaps_names", set())
         except Exception:
             pass
         return False
 
     def get_installed_snaps(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
-        """List locally installed snaps by parsing 'snap list' output."""
+        """List locally installed snaps by parsing 'snap list' output with cache retention."""
         now = time.time()
-        if not force_refresh and hasattr(self, "_installed_snaps_cache") and self._installed_snaps_cache is not None and (now - getattr(self, "_installed_snaps_cache_time", 0.0) < 6.0):
+        if not force_refresh and hasattr(self, "_installed_snaps_cache") and self._installed_snaps_cache is not None and (now - getattr(self, "_installed_snaps_cache_time", 0.0) < 10.0):
             return list(self._installed_snaps_cache)
 
         if not self.is_snapd_installed():
+            self._installed_snaps_cache = []
+            self._installed_snaps_cache_time = now
+            self._installed_snaps_names = set()
             return []
         try:
             res = subprocess.run(["snap", "list"], capture_output=True, text=True, timeout=5)
             if res.returncode != 0:
+                self._installed_snaps_cache = []
+                self._installed_snaps_cache_time = now
+                self._installed_snaps_names = set()
                 return []
             lines = res.stdout.splitlines()
             if not lines:
+                self._installed_snaps_cache = []
+                self._installed_snaps_cache_time = now
+                self._installed_snaps_names = set()
                 return []
             installed = []
+            names = set()
             for line in lines[1:]:
                 parts = line.split()
                 if not parts:
@@ -4209,8 +4244,15 @@ class SnapManager:
                     "is_installed": True,
                     "icon": resolve_icon_name(name),
                 })
-            return installed
+                names.add(name.lower())
+            self._installed_snaps_cache = installed
+            self._installed_snaps_cache_time = now
+            self._installed_snaps_names = names
+            return list(installed)
         except Exception:
+            self._installed_snaps_cache = []
+            self._installed_snaps_cache_time = now
+            self._installed_snaps_names = set()
             return []
 
     def check_snap_updates(self) -> List[Dict[str, Any]]:
@@ -4956,6 +4998,12 @@ class ContainerManager:
         self._status_cache: Optional[Dict[str, Any]] = None
         self._status_cache_time: float = 0.0
 
+    def invalidate_cache(self):
+        """Invalidate cached status."""
+        with self._lock:
+            self._status_cache = None
+            self._status_cache_time = 0.0
+
     def is_app_installing(self, app_id: str) -> bool:
         return app_id in self.active_container_installs
 
@@ -4967,7 +5015,7 @@ class ContainerManager:
     def get_status(self, force_refresh: bool = False) -> Dict[str, Any]:
         """Check container runtime and container existence."""
         now = time.time()
-        if not force_refresh and hasattr(self, "_status_cache") and self._status_cache and (now - getattr(self, "_status_cache_time", 0.0) < 4.0):
+        if not force_refresh and hasattr(self, "_status_cache") and self._status_cache and (now - getattr(self, "_status_cache_time", 0.0) < 10.0):
             res = dict(self._status_cache)
             res["is_configuring"] = self.is_configuring
             return res
@@ -5013,7 +5061,7 @@ class ContainerManager:
             status_code = "missing_engine"
             status_text = "Container Engine Not Running or Not Installed"
 
-        return {
+        res = {
             "has_docker": has_docker,
             "daemon_running": daemon_running,
             "container_exists": container_exists,
@@ -5023,6 +5071,9 @@ class ContainerManager:
             "status_text": status_text,
             "is_configuring": self.is_configuring,
         }
+        self._status_cache = res
+        self._status_cache_time = now
+        return res
 
     def stop_container(self, completion_callback=None):
         """Stop aura-box container."""

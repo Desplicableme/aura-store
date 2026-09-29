@@ -1558,6 +1558,24 @@ flowboxchild:hover {
     color: #8e8e93;
 }
 
+.mac-installed-empty-box {
+    margin-top: 50px;
+    margin-bottom: 50px;
+}
+
+.mac-installed-empty-icon {
+    opacity: 0.35;
+    color: #8e8e93;
+    margin-bottom: 8px;
+}
+
+.mac-installed-empty-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #f5f5f7;
+    margin-bottom: 2px;
+}
+
 .mac-browse-status-label {
     min-height: 22px;
     font-size: 12.5px;
@@ -2230,10 +2248,15 @@ class MacHeroCarousel(Gtk.Overlay):
         # Clicking anywhere on the slide opens package detail (ignoring clicks on action_btn)
         gesture = Gtk.GestureClick()
         def _on_slide_click(g, n, x, y, sid=slide["id"], ssrc=slide.get("source", "pacman")):
+            picked = slide_overlay.pick(x, y, Gtk.PickFlags.INSENSITIVE)
+            if picked is not None and (picked == action_btn or action_btn.is_ancestor(picked)):
+                return
             alloc = action_btn.compute_bounds(slide_overlay)
             if alloc[0]:
                 rect = alloc[1]
-                if rect.x <= x <= rect.x + rect.width and rect.y <= y <= rect.y + rect.height:
+                rx, ry = rect.get_x(), rect.get_y()
+                rw, rh = rect.get_width(), rect.get_height()
+                if rx <= x <= rx + rw and ry <= y <= ry + rh:
                     return
             self._open_detail(sid, ssrc)
         gesture.connect("released", _on_slide_click)
@@ -2574,6 +2597,153 @@ class AuraWindow(Adw.ApplicationWindow):
                                 btn.add_css_class("mac-btn-get")
                             btn.set_sensitive(True)
                 child = child.get_next_sibling()
+        self._sync_detail_page()
+
+    def _sync_detail_page(self, target_name: Optional[str] = None):
+        """
+        Dynamically synchronize the package detail page UI with live package status.
+        Ensures action buttons ('OPEN', 'INSTALLED', 'UNINSTALL', 'GET', 'INSTALLING...', 'QUEUED')
+        and progress bar reflect real-time backend state without full page reload.
+        """
+        if not hasattr(self, "main_stack") or self.main_stack.get_visible_child_name() != "detail":
+            return
+        if not getattr(self, "_current_detail", None):
+            return
+
+        name = self._current_detail.get("name", "")
+        if not name:
+            return
+        if target_name and target_name.lower().strip() != name.lower().strip():
+            return
+
+        source = self._current_detail.get("source", "pacman")
+
+        # 1. Dynamic live status check
+        is_installing = hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name)
+        is_queued = hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(name)
+
+        if source == "snap":
+            is_installed = bool(hasattr(self.pm, "snap_mgr") and self.pm.snap_mgr.is_snap_installed(name))
+        elif source in ("docker", "container"):
+            is_installed = bool(hasattr(self.pm, "container_mgr") and self.pm.container_mgr.is_app_installed(name))
+        else:
+            is_installed = bool(self.pm.is_installed(name))
+
+        self._current_detail["is_installed"] = is_installed
+        desktop_entry = self.pm.detect_desktop_entry(name) if is_installed else None
+        self._current_detail["desktop_entry"] = desktop_entry
+
+        # Check upgradable status
+        up_item = None
+        if hasattr(self.pm, "upgradable_list") and self.pm.upgradable_list:
+            up_item = next((u for u in self.pm.upgradable_list if u.get("name") == name), None)
+
+        # 2. Update Quick Stats version and size if installed
+        if is_installed:
+            inst_ver = self.pm.installed_versions.get(name, "")
+            if not inst_ver:
+                clean = re.sub(r'-(bin|git|hg|svn|pure|gtk-app|qt-app|gui|cli|daemon|desktop|launcher)$', '', name.lower())
+                inst_ver = self.pm.installed_versions.get(clean, "")
+            if inst_ver and hasattr(self, "stat_val_version"):
+                self.stat_val_version.set_text(f"v{inst_ver}")
+                self._current_detail["installed_version"] = inst_ver
+                self._current_detail["version"] = inst_ver
+
+        # 3. Synchronize Action Buttons and Progress Container
+        if is_installing:
+            self.progress_container.set_visible(True)
+            prog, msg = self.pm.get_active_progress(name) if hasattr(self.pm, "get_active_progress") else (0.0, "Updating..." if up_item else "Installing...")
+            self.progress_bar.set_fraction(prog)
+            self.progress_status_label.set_text(msg or ("Updating..." if up_item else "Installing..."))
+            self.progress_percent_label.set_text(f"{int(prog * 100)}%")
+
+            if hasattr(self, "btn_banner_update"):
+                self.btn_banner_update.set_label("UPDATING...")
+                self.btn_banner_update.set_sensitive(False)
+
+            self.btn_detail_launch.set_visible(False)
+            if hasattr(self, "btn_detail_update"):
+                self.btn_detail_update.set_visible(False)
+            self.btn_detail_install.set_label("UPDATING..." if up_item else "INSTALLING...")
+            self.btn_detail_install.set_sensitive(False)
+            self.btn_detail_install.set_css_classes(["mac-btn-primary-large"])
+            self.btn_detail_install.set_size_request(108, 36)
+            self.btn_detail_install.set_visible(True)
+            self.btn_detail_remove.set_visible(False)
+
+        elif is_queued:
+            self.progress_container.set_visible(False)
+            if hasattr(self, "btn_banner_update"):
+                self.btn_banner_update.set_label("QUEUED")
+                self.btn_banner_update.set_sensitive(False)
+            self.btn_detail_launch.set_visible(False)
+            if hasattr(self, "btn_detail_update"):
+                self.btn_detail_update.set_visible(False)
+            self.btn_detail_install.set_label("QUEUED")
+            self.btn_detail_install.set_sensitive(False)
+            self.btn_detail_install.set_css_classes(["mac-btn-primary-large", "mac-btn-queued"])
+            self.btn_detail_install.set_size_request(108, 36)
+            self.btn_detail_install.set_visible(True)
+            self.btn_detail_remove.set_visible(False)
+
+        elif up_item:
+            self.progress_container.set_visible(False)
+            if desktop_entry:
+                self.btn_detail_launch.set_label("OPEN")
+                self.btn_detail_launch.set_css_classes(["mac-btn-detail-open"])
+                self.btn_detail_launch.set_size_request(108, 36)
+                self.btn_detail_launch.set_sensitive(True)
+                self.btn_detail_launch.set_visible(True)
+            else:
+                self.btn_detail_launch.set_visible(False)
+            self.btn_detail_install.set_visible(False)
+            if hasattr(self, "btn_detail_update"):
+                self.btn_detail_update.set_label("UPDATE")
+                self.btn_detail_update.set_sensitive(True)
+                self.btn_detail_update.set_visible(True)
+            self.btn_detail_remove.set_label("UNINSTALL")
+            self.btn_detail_remove.set_size_request(108, 36)
+            self.btn_detail_remove.set_sensitive(True)
+            self.btn_detail_remove.set_visible(True)
+
+        elif is_installed:
+            self.progress_container.set_visible(False)
+            if hasattr(self, "detail_update_banner"):
+                self.detail_update_banner.set_visible(False)
+            if hasattr(self, "btn_detail_update"):
+                self.btn_detail_update.set_visible(False)
+            if desktop_entry:
+                self.btn_detail_launch.set_label("OPEN")
+                self.btn_detail_launch.set_css_classes(["mac-btn-detail-open"])
+                self.btn_detail_launch.set_size_request(108, 36)
+                self.btn_detail_launch.set_sensitive(True)
+                self.btn_detail_launch.set_visible(True)
+                self.btn_detail_install.set_visible(False)
+            else:
+                self.btn_detail_launch.set_visible(False)
+                self.btn_detail_install.set_label("INSTALLED")
+                self.btn_detail_install.set_css_classes(["mac-btn-installed"])
+                self.btn_detail_install.set_size_request(108, 36)
+                self.btn_detail_install.set_sensitive(True)
+                self.btn_detail_install.set_visible(True)
+            self.btn_detail_remove.set_label("UNINSTALL")
+            self.btn_detail_remove.set_size_request(108, 36)
+            self.btn_detail_remove.set_sensitive(True)
+            self.btn_detail_remove.set_visible(True)
+
+        else:
+            self.progress_container.set_visible(False)
+            self.btn_detail_launch.set_visible(False)
+            if hasattr(self, "detail_update_banner"):
+                self.detail_update_banner.set_visible(False)
+            if hasattr(self, "btn_detail_update"):
+                self.btn_detail_update.set_visible(False)
+            self.btn_detail_install.set_label("GET")
+            self.btn_detail_install.set_css_classes(["mac-btn-primary-large"])
+            self.btn_detail_install.set_size_request(108, 36)
+            self.btn_detail_install.set_sensitive(True)
+            self.btn_detail_install.set_visible(True)
+            self.btn_detail_remove.set_visible(False)
 
     def _on_window_key_pressed(self, controller: Gtk.EventControllerKey, keyval: int, keycode: int, state: Gdk.ModifierType) -> bool:
         # 1. Do not intercept if a modal or alert dialog is active
@@ -2618,6 +2788,9 @@ class AuraWindow(Adw.ApplicationWindow):
         elif curr == "snap" and hasattr(self, "snap_search_entry"):
             target_entry = self.snap_search_entry
             target_handler = getattr(self, "_on_snap_search_changed", None)
+        elif curr == "installed" and hasattr(self, "installed_search_entry"):
+            target_entry = self.installed_search_entry
+            target_handler = getattr(self, "_on_installed_search_changed", None)
         else:
             if curr != "browse":
                 self.main_stack.set_visible_child_name("browse")
@@ -2640,6 +2813,8 @@ class AuraWindow(Adw.ApplicationWindow):
             target_entry = self.container_search_entry
         elif curr == "snap" and hasattr(self, "snap_search_entry"):
             target_entry = self.snap_search_entry
+        elif curr == "installed" and hasattr(self, "installed_search_entry"):
+            target_entry = self.installed_search_entry
         else:
             if curr != "browse":
                 self.main_stack.set_visible_child_name("browse")
@@ -3762,7 +3937,7 @@ class AuraWindow(Adw.ApplicationWindow):
                     btn.add_css_class("mac-btn-update")
 
     # =========================================================================
-    # Page 4: Installed View (Pre-cached Instant 0ms Load)
+    # Page 4: Installed View (Pre-cached Instant 0ms Load + Instant Filter)
     # =========================================================================
     def _build_installed_page(self) -> Gtk.ScrolledWindow:
         scrolled = Gtk.ScrolledWindow()
@@ -3777,7 +3952,7 @@ class AuraWindow(Adw.ApplicationWindow):
         box.set_margin_start(20)
         box.set_margin_end(20)
 
-        # Header Row
+        # 1. Header Row
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         header_box.set_valign(Gtk.Align.CENTER)
 
@@ -3810,8 +3985,61 @@ class AuraWindow(Adw.ApplicationWindow):
 
         box.append(header_box)
 
+        # 2. Sleek macOS-Style Search Bar Row
+        search_bar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        search_bar_box.set_hexpand(True)
+        search_bar_box.set_valign(Gtk.Align.CENTER)
+
+        self.installed_search_entry = Gtk.SearchEntry()
+        self.installed_search_entry.add_css_class("mac-search-glass-bar")
+        self.installed_search_entry.set_placeholder_text("Search installed applications...")
+        self.installed_search_entry.set_hexpand(True)
+        self.installed_search_entry.connect("changed", self._on_installed_search_changed)
+        self.installed_search_entry.connect("stop-search", self._on_installed_stop_search)
+
+        # Key controller for Escape key to clear search
+        esc_controller = Gtk.EventControllerKey.new()
+        esc_controller.connect("key-pressed", self._on_installed_search_key_pressed)
+        self.installed_search_entry.add_controller(esc_controller)
+
+        search_bar_box.append(self.installed_search_entry)
+        box.append(search_bar_box)
+
+        # 3. Symmetric Grid with Filter Support
         self.installed_flow_box = self._create_symmetric_grid(min_columns=1, max_columns=4)
+        self.installed_flow_box.set_filter_func(self._installed_filter_func)
         box.append(self.installed_flow_box)
+
+        # 4. Clean macOS Empty State Placeholder
+        self.installed_empty_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.installed_empty_box.add_css_class("mac-installed-empty-box")
+        self.installed_empty_box.set_halign(Gtk.Align.CENTER)
+        self.installed_empty_box.set_valign(Gtk.Align.CENTER)
+        self.installed_empty_box.set_margin_top(48)
+        self.installed_empty_box.set_margin_bottom(48)
+        self.installed_empty_box.set_visible(False)
+
+        empty_icon = Gtk.Image.new_from_icon_name("system-search-symbolic")
+        empty_icon.set_pixel_size(48)
+        empty_icon.add_css_class("mac-installed-empty-icon")
+        self.installed_empty_box.append(empty_icon)
+
+        self.installed_empty_title = Gtk.Label(label="No Installed Apps Found")
+        self.installed_empty_title.add_css_class("mac-installed-empty-title")
+        self.installed_empty_box.append(self.installed_empty_title)
+
+        self.installed_empty_subtitle = Gtk.Label(label="No installed applications matching your search.")
+        self.installed_empty_subtitle.add_css_class("dim-label")
+        self.installed_empty_box.append(self.installed_empty_subtitle)
+
+        self.installed_empty_clear_btn = Gtk.Button(label="Clear Search")
+        self.installed_empty_clear_btn.add_css_class("mac-btn-get")
+        self.installed_empty_clear_btn.set_size_request(120, 32)
+        self.installed_empty_clear_btn.set_halign(Gtk.Align.CENTER)
+        self.installed_empty_clear_btn.connect("clicked", self._on_installed_clear_search_click)
+        self.installed_empty_box.append(self.installed_empty_clear_btn)
+
+        box.append(self.installed_empty_box)
 
         scrolled.set_child(box)
         return scrolled
@@ -3819,41 +4047,172 @@ class AuraWindow(Adw.ApplicationWindow):
     def _on_installed_mode_toggle(self, mode: str, button: Gtk.ToggleButton):
         if button.get_active():
             self._installed_mode = mode
+            if hasattr(self, "installed_search_entry"):
+                if mode == "apps":
+                    self.installed_search_entry.set_placeholder_text("Search installed applications...")
+                else:
+                    self.installed_search_entry.set_placeholder_text("Search all installed packages...")
             self._load_installed_view()
 
     def _load_installed_view(self):
         mode = getattr(self, "_installed_mode", "apps")
+        query = getattr(self, "installed_search_entry", None)
+        q_text = query.get_text().strip().lower() if query else ""
+
         if mode == "apps":
             apps = self.pm.get_installed_desktop_apps()
-            self.installed_header_label.set_text(f"Installed Applications ({len(apps)})")
-            self.sidebar_installed_badge.set_text(str(len(apps)))
+            total_apps = len(apps)
+            self.sidebar_installed_badge.set_text(str(total_apps))
 
-            # If already cached and populated, no re-allocation! Instantaneous!
-            if self._cached_installed_apps_flow is not None:
-                return
+            # Populate flow box if not cached
+            if self._cached_installed_apps_flow is None:
+                self.installed_flow_box.remove_all()
+                for a in apps:
+                    card = self._create_mac_app_row(
+                        a["name"],
+                        a.get("desc", ""),
+                        a.get("source", "pacman"),
+                        title_override=a.get("display_name", ""),
+                        is_installed_view=True,
+                        icon_override=a.get("icon", "")
+                    )
+                    self.installed_flow_box.append(card)
+                self._cached_installed_apps_flow = self.installed_flow_box
 
-            self.installed_flow_box.remove_all()
-            for a in apps:
-                card = self._create_mac_app_row(
-                    a["name"],
-                    a.get("desc", ""),
-                    a.get("source", "pacman"),
-                    title_override=a.get("display_name", ""),
-                    is_installed_view=True,
-                    icon_override=a.get("icon", "")
-                )
-                self.installed_flow_box.append(card)
-            self._cached_installed_apps_flow = self.installed_flow_box
+            # Apply active filter
+            self._filter_installed_apps()
         else:
             self._cached_installed_apps_flow = None
-            self.installed_flow_box.remove_all()
-            installed_names = sorted(list(self.pm.installed_set))
-            self.installed_header_label.set_text(f"All Packages ({len(installed_names)})")
-            for name in installed_names[:90]:
-                pkg = self.pm.packages.get(name, {})
-                desc = pkg.get("desc", "Locally installed package")
-                card = self._create_mac_app_row(name, desc, "pacman", is_installed_view=True)
-                self.installed_flow_box.append(card)
+            total_pkgs = len(self.pm.installed_set)
+
+            if not q_text:
+                self.installed_header_label.set_text(f"All Packages ({total_pkgs})")
+                self.installed_flow_box.set_visible(True)
+                self.installed_empty_box.set_visible(False)
+                self.installed_flow_box.remove_all()
+                installed_names = sorted(list(self.pm.installed_set))
+                for name in installed_names[:90]:
+                    pkg = self.pm.packages.get(name, {})
+                    desc = pkg.get("desc", "Locally installed package")
+                    card = self._create_mac_app_row(name, desc, "pacman", is_installed_view=True)
+                    self.installed_flow_box.append(card)
+            else:
+                self._filter_installed_apps()
+
+    def _installed_filter_func(self, child: Gtk.FlowBoxChild) -> bool:
+        """Native GTK4 FlowBox filter evaluated in C for instantaneous 0-latency filtering."""
+        mode = getattr(self, "_installed_mode", "apps")
+        if mode != "apps":
+            return True
+        query = getattr(self, "_installed_search_query", "").strip().lower()
+        if not query:
+            return True
+        card = child.get_child()
+        corpus = getattr(card, "_search_corpus", "")
+        if not corpus:
+            name = getattr(card, "_pkg_name", "").lower()
+            return query in name
+        return query in corpus
+
+    def _on_installed_search_changed(self, entry: Gtk.SearchEntry):
+        """Instant zero-latency filter trigger."""
+        self._filter_installed_apps()
+
+    def _on_installed_stop_search(self, entry: Gtk.SearchEntry):
+        """Escape key / Clear icon handler."""
+        entry.set_text("")
+        self._filter_installed_apps()
+
+    def _on_installed_search_key_pressed(self, controller: Gtk.EventControllerKey, keyval: int, keycode: int, state: Gdk.ModifierType) -> bool:
+        if keyval == Gdk.KEY_Escape:
+            if hasattr(self, "installed_search_entry") and self.installed_search_entry.get_text():
+                self.installed_search_entry.set_text("")
+                self._filter_installed_apps()
+                return True
+        return False
+
+    def _on_installed_clear_search_click(self, button: Gtk.Button):
+        """Clear button inside empty state placeholder."""
+        if hasattr(self, "installed_search_entry"):
+            self.installed_search_entry.set_text("")
+            self.installed_search_entry.grab_focus()
+
+    def _filter_installed_apps(self):
+        """Core zero-latency filtering and header/empty-state synchronization."""
+        entry = getattr(self, "installed_search_entry", None)
+        query = entry.get_text().strip().lower() if entry else ""
+        self._installed_search_query = query
+        mode = getattr(self, "_installed_mode", "apps")
+
+        if mode == "apps":
+            if self._cached_installed_apps_flow is None:
+                self._load_installed_view()
+                return
+
+            total_apps = len(self.pm.get_installed_desktop_apps())
+
+            # Evaluate filter across all cached cards
+            self.installed_flow_box.invalidate_filter()
+
+            # Count visible cards
+            visible_apps = 0
+            child = self.installed_flow_box.get_first_child()
+            while child:
+                if child.get_child_visible():
+                    visible_apps += 1
+                child = child.get_next_sibling()
+
+            if not query:
+                self.installed_header_label.set_text(f"Installed Applications ({total_apps})")
+                self.installed_flow_box.set_visible(True)
+                self.installed_empty_box.set_visible(False)
+            else:
+                self.installed_header_label.set_text(f"Showing {visible_apps} of {total_apps} installed applications")
+                if visible_apps == 0:
+                    self.installed_flow_box.set_visible(False)
+                    self.installed_empty_box.set_visible(True)
+                    self.installed_empty_title.set_text("No Installed Applications Found")
+                    self.installed_empty_subtitle.set_text(f'No installed applications matching "{entry.get_text().strip()}"')
+                else:
+                    self.installed_flow_box.set_visible(True)
+                    self.installed_empty_box.set_visible(False)
+        else:
+            # "all" packages mode: in-memory search over installed_set
+            total_pkgs = len(self.pm.installed_set)
+            if not query:
+                self.installed_header_label.set_text(f"All Packages ({total_pkgs})")
+                self.installed_flow_box.set_visible(True)
+                self.installed_empty_box.set_visible(False)
+                self.installed_flow_box.remove_all()
+                installed_names = sorted(list(self.pm.installed_set))
+                for name in installed_names[:90]:
+                    pkg = self.pm.packages.get(name, {})
+                    desc = pkg.get("desc", "Locally installed package")
+                    card = self._create_mac_app_row(name, desc, "pacman", is_installed_view=True)
+                    self.installed_flow_box.append(card)
+            else:
+                matches = []
+                for name in sorted(self.pm.installed_set):
+                    pkg = self.pm.packages.get(name, {})
+                    desc = pkg.get("desc", "")
+                    if query in name.lower() or (desc and query in desc.lower()):
+                        matches.append((name, desc or "Locally installed package"))
+
+                count = len(matches)
+                self.installed_header_label.set_text(f"Showing {count} of {total_pkgs} packages")
+                self.installed_flow_box.remove_all()
+
+                if count == 0:
+                    self.installed_flow_box.set_visible(False)
+                    self.installed_empty_box.set_visible(True)
+                    self.installed_empty_title.set_text("No Installed Packages Found")
+                    self.installed_empty_subtitle.set_text(f'No installed packages matching "{entry.get_text().strip()}"')
+                else:
+                    self.installed_flow_box.set_visible(True)
+                    self.installed_empty_box.set_visible(False)
+                    for name, desc in matches[:90]:
+                        card = self._create_mac_app_row(name, desc, "pacman", is_installed_view=True)
+                        self.installed_flow_box.append(card)
 
     # =========================================================================
     # =========================================================================
@@ -4792,15 +5151,6 @@ class AuraWindow(Adw.ApplicationWindow):
         icon_box.set_vexpand(False)
         icon_box.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
 
-        icon_gesture = Gtk.GestureClick()
-        def _on_icon_click(g, n_press, x, y, n=name):
-            if is_inst and has_desktop:
-                self._open_or_launch(n, "snap")
-            else:
-                self._open_package_detail(n, "snap")
-        icon_gesture.connect("released", _on_icon_click)
-        icon_box.add_controller(icon_gesture)
-
         img = create_scaled_image(icon_target, size=40)
         img.set_halign(Gtk.Align.CENTER)
         img.set_valign(Gtk.Align.CENTER)
@@ -4881,10 +5231,15 @@ class AuraWindow(Adw.ApplicationWindow):
 
         gesture = Gtk.GestureClick()
         def _on_card_click(g, n_press, x, y, n=name):
+            picked = card.pick(x, y, Gtk.PickFlags.INSENSITIVE)
+            if picked is not None and (picked == action_btn or action_btn.is_ancestor(picked)):
+                return
             alloc = action_btn.compute_bounds(card)
             if alloc[0]:
                 rect = alloc[1]
-                if rect.x <= x <= rect.x + rect.width and rect.y <= y <= rect.y + rect.height:
+                rx, ry = rect.get_x(), rect.get_y()
+                rw, rh = rect.get_width(), rect.get_height()
+                if rx <= x <= rx + rw and ry <= y <= ry + rh:
                     return
             self._open_package_detail(n, "snap")
         gesture.connect("released", _on_card_click)
@@ -5714,15 +6069,6 @@ class AuraWindow(Adw.ApplicationWindow):
         icon_box.set_vexpand(False)
         icon_box.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
 
-        icon_gesture = Gtk.GestureClick()
-        def _on_icon_click(g, n_press, x, y, n=name, s=source):
-            if self.pm.is_installed(n) and self.pm.detect_desktop_entry(n):
-                self._open_or_launch(n, s)
-            else:
-                self._open_package_detail(n, s)
-        icon_gesture.connect("released", _on_icon_click)
-        icon_box.add_controller(icon_gesture)
-
         img = create_scaled_image(icon_target, size=40)
         img.set_halign(Gtk.Align.CENTER)
         img.set_valign(Gtk.Align.CENTER)
@@ -5825,15 +6171,23 @@ class AuraWindow(Adw.ApplicationWindow):
         card._action_btn = action_btn
         card._pkg_name = name
         card._update_info = update_info
+        card._display_name = display_title
+        card._desc = desc
+        card._search_corpus = f"{name} {display_title} {desc}".lower()
         card.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
 
         # Card Gesture Click opens full-page inspector (ignoring clicks on action_btn)
         gesture = Gtk.GestureClick()
         def _on_card_click(g, n_press, x, y, n=name, s=source):
+            picked = card.pick(x, y, Gtk.PickFlags.INSENSITIVE)
+            if picked is not None and (picked == action_btn or action_btn.is_ancestor(picked)):
+                return
             alloc = action_btn.compute_bounds(card)
             if alloc[0]:
                 rect = alloc[1]
-                if rect.x <= x <= rect.x + rect.width and rect.y <= y <= rect.y + rect.height:
+                rx, ry = rect.get_x(), rect.get_y()
+                rw, rh = rect.get_width(), rect.get_height()
+                if rx <= x <= rx + rw and ry <= y <= ry + rh:
                     return
             self._open_package_detail(n, s)
         gesture.connect("released", _on_card_click)
@@ -5907,6 +6261,7 @@ class AuraWindow(Adw.ApplicationWindow):
 
     def _clear_detail_page_loading(self, name: str, source: str):
         """Immediately wipe previous package data so user NEVER sees stale cached values."""
+        self._current_detail = {"name": name, "source": source}
         disp_title = get_app_display_name(name)
         self.detail_title.set_text(disp_title)
         self.detail_subtitle.set_text(f"{name} • Fetching package details...")
@@ -5946,6 +6301,13 @@ class AuraWindow(Adw.ApplicationWindow):
             self.progress_bar.set_fraction(prog)
             self.progress_status_label.set_text(msg or "Installing...")
             self.progress_percent_label.set_text(f"{int(prog * 100)}%")
+        elif hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(name):
+            self.progress_container.set_visible(False)
+            self.btn_detail_install.set_label("QUEUED")
+            self.btn_detail_install.set_sensitive(False)
+            self.btn_detail_install.set_css_classes(["mac-btn-primary-large", "mac-btn-queued"])
+            self.btn_detail_install.set_size_request(108, 36)
+            self.btn_detail_install.set_visible(True)
         else:
             self.progress_container.set_visible(False)
 
@@ -5973,7 +6335,18 @@ class AuraWindow(Adw.ApplicationWindow):
         self.detail_desc_label.remove_css_class("mac-loading-shimmer")
         name = d.get("name", "")
         source = d.get("source", "pacman")
-        is_installed = d.get("is_installed", False)
+
+        # Live dynamic check prevents race condition with background fetch
+        if source == "snap":
+            is_installed = bool(hasattr(self.pm, "snap_mgr") and self.pm.snap_mgr.is_snap_installed(name))
+        elif source in ("docker", "container"):
+            is_installed = bool(hasattr(self.pm, "container_mgr") and self.pm.container_mgr.is_app_installed(name))
+        else:
+            is_installed = bool(self.pm.is_installed(name))
+        d["is_installed"] = is_installed
+        desktop_entry = self.pm.detect_desktop_entry(name) if is_installed else None
+        d["desktop_entry"] = desktop_entry
+
         installed_ver = d.get("installed_version", "")
         ver = d.get("version", installed_ver)
         desc = d.get("desc", "No description available.")
@@ -6752,6 +7125,7 @@ class AuraWindow(Adw.ApplicationWindow):
                         btn.remove_css_class("mac-btn-queued")
                         btn.add_css_class("mac-btn-open" if has_desktop else "mac-btn-installed")
                         btn.set_sensitive(True)
+                    self._sync_detail_page(name)
                     self._sync_all_cards()
                 else:
                     if btn:
@@ -6760,8 +7134,9 @@ class AuraWindow(Adw.ApplicationWindow):
                         btn.add_css_class("mac-btn-get")
                         btn.set_sensitive(True)
                     self.show_toast(f"Installation failed: {err[:50]}")
+                    self._sync_detail_page(name)
                     self._sync_all_cards()
-                GLib.timeout_add(300, lambda: self._sync_all_cards() or False)
+                GLib.timeout_add(300, lambda: (self._sync_all_cards(), self._sync_detail_page(name)) and False)
             GLib.idle_add(_ui)
 
         res = self.pm.execute_background_action("install", pkg_name, source, _on_prog, _on_done)
@@ -6773,9 +7148,11 @@ class AuraWindow(Adw.ApplicationWindow):
                 btn.remove_css_class("mac-btn-get")
                 btn.add_css_class("mac-btn-queued")
                 btn.set_sensitive(False)
+            self._sync_detail_page(pkg_name)
             self._sync_all_cards()
         else:
             self._start_smooth_progress("install", pkg_name, display_name=disp, source=source, target_view="detail")
+            self._sync_detail_page(pkg_name)
             self._sync_all_cards()
 
     def _on_install_click(self):
@@ -6812,6 +7189,7 @@ class AuraWindow(Adw.ApplicationWindow):
                         self.btn_detail_install.add_css_class("mac-btn-primary-large")
                         self._start_smooth_progress("install", name, display_name=disp, source=source, target_view="detail")
                 self._on_progress_update(frac, status_msg)
+                self._sync_detail_page(name)
                 self._sync_all_cards()
             GLib.idle_add(_ui_p)
 
@@ -6822,17 +7200,8 @@ class AuraWindow(Adw.ApplicationWindow):
                     self.show_toast(f"Successfully installed {disp}!")
                     self.pm.refresh_installed()
                     self._cached_installed_apps_flow = None
-                    if hasattr(self, "btn_detail_install"):
-                        has_desktop = bool(self.pm.detect_desktop_entry(pkg_name))
-                        self.btn_detail_install.set_label("OPEN" if has_desktop else "INSTALLED")
-                        self.btn_detail_install.remove_css_class("mac-btn-queued")
-                        self.btn_detail_install.remove_css_class("mac-btn-primary-large")
-                        self.btn_detail_install.add_css_class("mac-btn-open" if has_desktop else "mac-btn-installed")
-                        self.btn_detail_install.set_sensitive(True)
-                    if hasattr(self, "btn_detail_launch"):
-                        self.btn_detail_launch.set_visible(bool(self.pm.detect_desktop_entry(pkg_name)))
+                    self._sync_detail_page(pkg_name)
                     self._sync_all_cards()
-                    GLib.timeout_add(1000, lambda: self._open_package_detail(pkg_name, source) or False)
                 else:
                     self.btn_detail_install.set_sensitive(True)
                     self.btn_detail_install.remove_css_class("mac-btn-queued")
@@ -6840,8 +7209,9 @@ class AuraWindow(Adw.ApplicationWindow):
                     self.btn_detail_install.add_css_class("mac-btn-get")
                     self.btn_detail_install.set_label("GET")
                     self.show_toast(f"Installation failed: {err[:50]}")
+                    self._sync_detail_page(pkg_name)
                     self._sync_all_cards()
-                GLib.timeout_add(300, lambda: self._sync_all_cards() or False)
+                GLib.timeout_add(300, lambda: (self._sync_all_cards(), self._sync_detail_page(pkg_name)) and False)
             GLib.idle_add(_ui)
 
         res = self.pm.execute_background_action("install", name, source, _on_prog, _on_done)
@@ -6852,9 +7222,11 @@ class AuraWindow(Adw.ApplicationWindow):
             self.btn_detail_install.add_css_class("mac-btn-queued")
             self.btn_detail_install.set_sensitive(False)
             self.show_toast(f"Added {disp} to installation queue (position #{pos})")
+            self._sync_detail_page(name)
             self._sync_all_cards()
         else:
             self._start_smooth_progress("install", name, display_name=disp, source=source, target_view="detail")
+            self._sync_detail_page(name)
             self._sync_all_cards()
 
     def _on_remove_click(self):
@@ -6875,6 +7247,7 @@ class AuraWindow(Adw.ApplicationWindow):
 
         def _on_prog(frac: float, status_msg: str):
             self._on_progress_update(frac, status_msg)
+            self._sync_detail_page(name)
 
         def _on_done(ok: bool, action: str, pkg_name: str, err: str):
             def _ui():
@@ -6884,9 +7257,13 @@ class AuraWindow(Adw.ApplicationWindow):
                     self.show_toast(f"Successfully removed {disp}!")
                     self.pm.refresh_installed()
                     self._cached_installed_apps_flow = None
-                    GLib.timeout_add(1500, lambda: self._open_package_detail(pkg_name, source) or False)
+                    self._sync_detail_page(pkg_name)
+                    self._sync_all_cards()
                 else:
                     self.show_toast(f"Removal failed: {err[:50]}")
+                    self._sync_detail_page(pkg_name)
+                    self._sync_all_cards()
+                GLib.timeout_add(300, lambda: (self._sync_all_cards(), self._sync_detail_page(pkg_name)) and False)
             GLib.idle_add(_ui)
 
         self.pm.execute_background_action("remove", name, source, _on_prog, _on_done)
@@ -6945,8 +7322,7 @@ class AuraWindow(Adw.ApplicationWindow):
                     self._cached_installed_apps_flow = None
                     self._populate_updates(self.pm.upgradable_list)
                     # Refresh detail page if open for this package
-                    if self.main_stack.get_visible_child_name() == "detail" and self._current_detail and self._current_detail.get("name") == name:
-                        self._open_package_detail(name, source)
+                    self._sync_detail_page(name)
                 else:
                     self.show_toast(f"Update failed for {disp}: {err[:50]}")
                     self._sync_updates_ui_state()

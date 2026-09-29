@@ -1316,6 +1316,8 @@ def get_desktop_icons_map() -> Dict[str, str]:
     search_dirs = [
         Path("/usr/share/applications"),
         Path(os.path.expanduser("~/.local/share/applications")),
+        Path("/var/lib/snapd/desktop/applications"),
+        Path("/snap/share/applications"),
     ]
     for d in search_dirs:
         if not d.exists():
@@ -2159,6 +2161,12 @@ class PackageManager:
             with self._lock:
                 self.installed_versions = installed
                 self.installed_set = set(installed.keys())
+
+            # Invalidate desktop launcher cache so newly installed apps are detected immediately
+            global _DESKTOP_ICONS_CACHE, _DESKTOP_NAMES_CACHE, _DESKTOP_ENTRIES_CACHE
+            _DESKTOP_ICONS_CACHE = {}
+            _DESKTOP_NAMES_CACHE = {}
+            _DESKTOP_ENTRIES_CACHE = {}
         except Exception as e:
             print(f"[Aura] Error loading installed packages: {e}", file=sys.stderr)
 
@@ -3127,7 +3135,13 @@ class PackageManager:
 
     def detect_desktop_entry(self, pkg_name: str) -> Optional[str]:
         """Detect if an installed package provides a desktop application launcher (fast in-memory)."""
-        if not self.is_installed(pkg_name):
+        is_inst = self.is_installed(pkg_name)
+        if not is_inst and hasattr(self, "snap_mgr") and self.snap_mgr:
+            try:
+                is_inst = self.snap_mgr.is_snap_installed(pkg_name)
+            except Exception:
+                pass
+        if not is_inst:
             return None
         entries = get_desktop_entries_map()
         name_lower = pkg_name.lower()

@@ -2822,6 +2822,17 @@ class PackageManager:
         self.is_checking_updates = False
         self.updates_checked = True
 
+        # Filter out packages that were recently updated (within 30s) to prevent race resurrection
+        if hasattr(self, "_recently_updated") and self._recently_updated:
+            now = time.time()
+            # Clean up stale entries (older than 30 seconds)
+            stale = [k for k, t in self._recently_updated.items() if now - t > 30]
+            for k in stale:
+                del self._recently_updated[k]
+            # Filter updates list
+            if self._recently_updated:
+                updates = [u for u in updates if u.get("name", "").strip().lower() not in self._recently_updated]
+
         with self._lock:
             # Concurrency guard: only commit if newer check hasn't superseded this generation
             if gen == self._update_generation:
@@ -3787,6 +3798,8 @@ class PackageManager:
                 proc.wait()
                 success = proc.returncode == 0
                 if success:
+                    # Record which packages were updated so check_updates can exclude them temporarily
+                    resolved_inst = self.resolve_installed_pkg_name(pkg_name) if pkg_name else ""
                     with self._lock:
                         if action in ["upgrade", "update"]:
                             if is_system_upgrade:
@@ -3798,8 +3811,15 @@ class PackageManager:
                                 except Exception:
                                     pass
                             elif pkg_name:
-                                resolved_inst = self.resolve_installed_pkg_name(pkg_name)
-                                self.upgradable_list = [u for u in self.upgradable_list if u.get("name") not in (pkg_name, f"{pkg_name}-bin", resolved_inst)]
+                                exclude_names = {pkg_name, f"{pkg_name}-bin", resolved_inst}
+                                self.upgradable_list = [u for u in self.upgradable_list if u.get("name") not in exclude_names]
+                                # Protect against race: mark these as recently updated
+                                if not hasattr(self, "_recently_updated"):
+                                    self._recently_updated = {}
+                                now = time.time()
+                                for en in exclude_names:
+                                    if en:
+                                        self._recently_updated[en] = now
                                 try:
                                     with open(UPDATES_CACHE_FILE, "w") as f:
                                         json.dump(self.upgradable_list, f)
@@ -3824,8 +3844,11 @@ class PackageManager:
                             self.active_transaction["is_completed"] = True
                     self._last_progress = 1.0
                     progress_cb(1.0, comp_msg)
-                    # Background check for remaining updates
-                    threading.Thread(target=self.check_updates, daemon=True).start()
+                    # Delayed background check for remaining updates (wait for pacman sync DB to settle)
+                    def _delayed_check():
+                        time.sleep(5)
+                        self.check_updates()
+                    threading.Thread(target=_delayed_check, daemon=True).start()
                     try:
                         complete_cb(True, action, pkg_name, "")
                     finally:

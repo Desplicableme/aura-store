@@ -3994,10 +3994,11 @@ class AuraWindow(Adw.ApplicationWindow):
                 name = u["name"]
                 pkg = self.pm.packages.get(name, {})
                 desc = pkg.get("desc", "System software update")
+                u_source = u.get("source", "pacman")
                 card = self._create_mac_app_row(
                     name,
                     desc,
-                    "pacman",
+                    u_source,
                     is_installed_view=True,
                     update_info={"old_ver": u["old_ver"], "new_ver": u["new_ver"]}
                 )
@@ -7162,10 +7163,9 @@ class AuraWindow(Adw.ApplicationWindow):
             if not getattr(self, "_progress_anim_id", None) and self._current_progress < 1.0:
                 self._progress_anim_id = GLib.timeout_add(16, self._on_progress_lerp_tick)
 
-            # Sync card buttons and badges during updates
+            # Sync update badges on updates view (lightweight)
             if self._progress_target_view == "updates" or (hasattr(self, "main_stack") and self.main_stack.get_visible_child_name() == "updates"):
                 self._sync_updates_ui_state()
-            self._sync_all_cards()
         GLib.idle_add(_apply)
 
     def _on_progress_lerp_tick(self) -> bool:
@@ -7355,7 +7355,6 @@ class AuraWindow(Adw.ApplicationWindow):
                         btn.remove_css_class("mac-btn-queued")
                         btn.add_css_class("mac-btn-get")
                 self._on_progress_update(frac, msg)
-                self._sync_all_cards()
             GLib.idle_add(_ui_p)
 
         def _on_done(ok: bool, action: str, name: str, err: str):
@@ -7437,7 +7436,6 @@ class AuraWindow(Adw.ApplicationWindow):
                         self._start_smooth_progress("install", name, display_name=disp, source=source, target_view="detail")
                 self._on_progress_update(frac, status_msg)
                 self._sync_detail_page(name)
-                self._sync_all_cards()
             GLib.idle_add(_ui_p)
 
         def _on_done(ok: bool, action: str, pkg_name: str, err: str):
@@ -7571,7 +7569,6 @@ class AuraWindow(Adw.ApplicationWindow):
                         self.btn_banner_update.remove_css_class("mac-btn-queued")
                         self.btn_banner_update.add_css_class("mac-btn-get")
                 self._on_progress_update(frac, msg)
-                self._sync_all_cards()
             GLib.idle_add(_ui_p)
 
         def _on_done(ok: bool, action: str, name: str, err: str):
@@ -7650,7 +7647,6 @@ class AuraWindow(Adw.ApplicationWindow):
 
         def _on_prog(frac: float, msg: str):
             self._on_progress_update(frac, msg)
-            self._sync_all_cards()
 
         def _on_done(ok: bool, action: str, name: str, err: str):
             def _ui():

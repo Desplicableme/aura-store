@@ -46,8 +46,6 @@ pkg_cache.json
 
 # Temporary screenshot captures / debug scripts
 capture_all.py
-/test_*.py
-!tests/
-!tests/**
-tests/**/__pycache__/
+# Private local test suites and scratch scripts
+tests/
 scratch/

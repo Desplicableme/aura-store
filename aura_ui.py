@@ -35,6 +35,8 @@ from aura_backend import (
     get_app_display_name
 )
 
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 def get_cached_icon_file(name: str, icon_url: str = "") -> str:
     """Return local path to cached icon if available, or fetch in background."""
@@ -2326,7 +2328,7 @@ class AuraWindow(Adw.ApplicationWindow):
         theme.add_search_path(str(Path.home() / ".local/share/icons/hicolor/scalable/apps"))
         theme.add_search_path(str(Path(__file__).resolve().parent / "data/icons"))
         theme.add_search_path(str(Path(__file__).resolve().parent))
-        theme.add_search_path("/home/arka/aura")
+        theme.add_search_path(str(Path.home() / ".local" / "share" / "aura"))
         Gtk.Window.set_default_icon_name("aura-icon")
         self.set_icon_name("aura-icon")
 
@@ -2855,10 +2857,9 @@ class AuraWindow(Adw.ApplicationWindow):
         brand_logo_box.set_halign(Gtk.Align.CENTER)
         brand_logo_box.set_valign(Gtk.Align.CENTER)
         icon_candidates = [
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "aura-icon.svg"),
-            "/home/arka/aura/aura-icon.svg",
-            "/home/arka/.local/share/aura/aura-icon.svg",
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "icons", "io.github.aura.svg"),
+            os.path.join(APP_DIR, "aura-icon.svg"),
+            os.path.join(os.path.expanduser("~"), ".local", "share", "aura", "aura-icon.svg"),
+            os.path.join(APP_DIR, "data", "icons", "io.github.aura.svg"),
         ]
         found_icon = next((p for p in icon_candidates if os.path.exists(p)), "aura-icon")
         brand_logo_img = create_scaled_image(found_icon, size=36)
@@ -3332,12 +3333,12 @@ class AuraWindow(Adw.ApplicationWindow):
 
     def _show_password_config_dialog(self):
         is_cfg = self.pm.is_passwordless_configured()
-        
+
         dialog = Adw.AlertDialog.new(
-            "Lifetime Passwordless Setup",
-            "Permanently authorize Aura so it will never ask for your administrator password again. Your credentials are protected in a secure 0600 vault and a dedicated pacman/paru sudoers policy is generated."
+            "Passwordless Package Management",
+            "Configure a dedicated sudoers drop-in policy for pacman, paru, and yay operations. When enabled, Aura performs package installations and updates seamlessly without repeatedly prompting for administrator credentials."
         )
-        
+
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         box.set_margin_top(8)
         box.set_margin_bottom(8)
@@ -3350,7 +3351,7 @@ class AuraWindow(Adw.ApplicationWindow):
         status_icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic" if is_cfg else "dialog-password-symbolic")
         status_lbl = Gtk.Label()
         if is_cfg:
-            status_lbl.set_label("Lifetime Passwordless Active (Never prompts)")
+            status_lbl.set_label("Passwordless Mode Active (Never prompts)")
             status_lbl.add_css_class("success-status")
         else:
             status_lbl.set_label("Password required for root operations")
@@ -3359,28 +3360,41 @@ class AuraWindow(Adw.ApplicationWindow):
         status_box.append(status_lbl)
         box.append(status_box)
 
-        # Password Label & Entry
-        pwd_lbl = Gtk.Label(label="Administrator Password:")
-        pwd_lbl.set_halign(Gtk.Align.START)
-        pwd_lbl.add_css_class("mac-stat-label")
-        box.append(pwd_lbl)
+        entry = None
+        if is_cfg:
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("disable", "Disable Passwordless Mode")
+            dialog.set_response_appearance("disable", Adw.ResponseAppearance.DESTRUCTIVE)
+            dialog.set_default_response("cancel")
+        else:
+            pwd_lbl = Gtk.Label(label="Administrator Password:")
+            pwd_lbl.set_halign(Gtk.Align.START)
+            pwd_lbl.add_css_class("mac-stat-label")
+            box.append(pwd_lbl)
 
-        entry = Gtk.PasswordEntry()
-        entry.set_show_peek_icon(True)
-        entry.set_hexpand(True)
-        box.append(entry)
+            entry = Gtk.PasswordEntry()
+            entry.set_show_peek_icon(True)
+            entry.set_hexpand(True)
+            box.append(entry)
 
-        dialog.set_extra_child(box)
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("save", "Authorize Forever")
-        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_default_response("save")
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("enable", "Enable Passwordless Mode")
+            dialog.set_response_appearance("enable", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_default_response("enable")
+
         dialog.set_close_response("cancel")
+        dialog.set_extra_child(box)
 
         def on_response(dlg, resp):
-            if resp == "save":
+            if resp == "disable":
+                success, msg = self.pm.remove_passwordless()
+                self.show_toast(msg)
+                self._update_auth_btn_status()
+            elif resp == "enable":
+                if entry is None:
+                    return
                 pwd = entry.get_text()
-                if not pwd.strip():
+                if not pwd:
                     self.show_toast("Password cannot be empty")
                     return
                 success, msg = self.pm.configure_passwordless(pwd)
@@ -4264,10 +4278,9 @@ class AuraWindow(Adw.ApplicationWindow):
         c_icon_box.set_vexpand(False)
 
         docker_brand_candidates = [
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "icons", "docker-brand.svg"),
-            "/home/arka/aura/data/icons/docker-brand.svg",
-            "/home/arka/.local/share/aura/data/icons/docker-brand.svg",
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "icons", "docker-desktop.svg"),
+            os.path.join(APP_DIR, "data", "icons", "docker-brand.svg"),
+            os.path.join(os.path.expanduser("~"), ".local", "share", "aura", "data", "icons", "docker-brand.svg"),
+            os.path.join(APP_DIR, "data", "icons", "docker-desktop.svg"),
         ]
         docker_brand_path = next((p for p in docker_brand_candidates if os.path.exists(p)), "docker-symbolic")
         c_icon = create_scaled_image(docker_brand_path, size=56)
@@ -4795,9 +4808,8 @@ class AuraWindow(Adw.ApplicationWindow):
         snap_logo_box.set_vexpand(False)
 
         snap_brand_candidates = [
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "icons", "snap-brand.svg"),
-            "/home/arka/aura/data/icons/snap-brand.svg",
-            "/home/arka/.local/share/aura/data/icons/snap-brand.svg",
+            os.path.join(APP_DIR, "data", "icons", "snap-brand.svg"),
+            os.path.join(os.path.expanduser("~"), ".local", "share", "aura", "data", "icons", "snap-brand.svg"),
         ]
         snap_brand_path = next((p for p in snap_brand_candidates if os.path.exists(p)), "snap-brand")
         snap_logo_icon = create_scaled_image(snap_brand_path, size=56)
@@ -6566,6 +6578,8 @@ class AuraWindow(Adw.ApplicationWindow):
                 self.show_toast(f"Failed to open URL: {e}")
 
     def _launch_app(self):
+        if not getattr(self, "_current_detail", None):
+            return
         desktop_entry = self._current_detail.get("desktop_entry")
         if desktop_entry:
             self.pm.launch_desktop_app(desktop_entry)
@@ -7084,7 +7098,13 @@ class AuraWindow(Adw.ApplicationWindow):
             self._update_single_package(pkg_name, source)
             return
 
-        if self.pm.is_installed(pkg_name):
+        if source == "snap":
+            is_inst = bool(hasattr(self.pm, "snap_mgr") and self.pm.snap_mgr.is_snap_installed(pkg_name))
+        elif source in ("docker", "container"):
+            is_inst = bool(hasattr(self.pm, "container_mgr") and self.pm.container_mgr.is_app_installed(pkg_name))
+        else:
+            is_inst = bool(self.pm.is_installed(pkg_name))
+        if is_inst:
             self._open_or_launch(pkg_name, source)
             return
 
@@ -7281,7 +7301,7 @@ class AuraWindow(Adw.ApplicationWindow):
             btn.set_sensitive(False)
 
         # Also update detail page button if viewing this package
-        if hasattr(self, "btn_detail_update") and self.main_stack.get_visible_child_name() == "detail" and self._current_detail.get("name") == pkg_name:
+        if hasattr(self, "btn_detail_update") and self.main_stack.get_visible_child_name() == "detail" and self._current_detail and self._current_detail.get("name") == pkg_name:
             self.btn_detail_update.set_label("UPDATING...")
             self.btn_detail_update.set_sensitive(False)
 

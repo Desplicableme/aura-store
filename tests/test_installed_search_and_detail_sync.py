@@ -14,7 +14,8 @@ from unittest.mock import MagicMock
 
 import gi
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, GLib
+gi.require_version("Adw", "1")
+from gi.repository import Gtk, GLib, Gio, Adw
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from aura_ui import AuraWindow
@@ -30,8 +31,7 @@ def pump_main_loop(duration: float = 0.25):
 class TestInstalledSearchAndDetailSync(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = Gtk.Application(application_id="org.archlinux.aura.installed_search_test")
-        cls.app.register(None)
+        cls.app = Adw.Application(application_id="org.archlinux.aura.installed_search_test", flags=Gio.ApplicationFlags.NON_UNIQUE)
 
     def setUp(self):
         self.pm = MagicMock()

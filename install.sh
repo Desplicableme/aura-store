@@ -94,10 +94,13 @@ chmod +x "${INSTALL_DIR}/aura-askpass"
 
 # 4. Install Icons
 echo -e "${BLUE}==>${RESET} Installing desktop and status icons..."
-cp "${SCRIPT_DIR}/data/icons/io.github.aura.svg" "${ICONS_DIR}/io.github.aura.svg"
-if [ -f "${SCRIPT_DIR}/data/icons/docker-symbolic.svg" ]; then
-    cp "${SCRIPT_DIR}/data/icons/docker-symbolic.svg" "${ICONS_DIR}/docker-symbolic.svg"
-fi
+mkdir -p "${INSTALL_DIR}/data/icons"
+for icon in "${SCRIPT_DIR}"/data/icons/*.svg; do
+    if [ -f "$icon" ]; then
+        cp "$icon" "${ICONS_DIR}/"
+        cp "$icon" "${INSTALL_DIR}/data/icons/"
+    fi
+done
 
 # 5. Install Desktop Entry & Hyprland config
 echo -e "${BLUE}==>${RESET} Installing desktop launcher and window rules..."

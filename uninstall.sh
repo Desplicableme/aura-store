@@ -20,24 +20,32 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     exit 0
 fi
 
+# 1. Remove sudoers passwordless policy if installed
+if [ -f "/etc/sudoers.d/99-aura-pacman" ]; then
+    echo -e "${BLUE}==>${RESET} Removing passwordless sudoers policy (/etc/sudoers.d/99-aura-pacman)..."
+    if sudo -n true 2>/dev/null; then
+        sudo rm -f "/etc/sudoers.d/99-aura-pacman" || true
+    else
+        sudo rm -f "/etc/sudoers.d/99-aura-pacman" 2>/dev/null || true
+    fi
+fi
+
+# 2. Remove application files
 echo -e "${BLUE}==>${RESET} Removing application files..."
 rm -rf "${HOME}/.local/share/aura"
 rm -f "${HOME}/.local/bin/aura"
 rm -f "${HOME}/.local/share/applications/io.github.aura.desktop"
 rm -f "${HOME}/.local/share/icons/hicolor/scalable/apps/io.github.aura.svg"
 rm -f "${HOME}/.local/share/icons/hicolor/scalable/apps/docker-symbolic.svg"
+rm -f "${HOME}/.local/share/icons/hicolor/scalable/apps/docker-brand.svg"
+rm -f "${HOME}/.local/share/icons/hicolor/scalable/apps/docker-desktop.svg"
+rm -f "${HOME}/.local/share/icons/hicolor/scalable/apps/snap-brand.svg"
 
-# Optional vault cleanup
-if [ -f "${HOME}/.aura_vault" ]; then
-    read -p "Remove stored passwordless credentials vault (~/.aura_vault)? [y/N] " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        rm -f "${HOME}/.aura_vault"
-        echo "Removed vault."
-    fi
-fi
+# 3. Clean up credentials or session tokens
+rm -f "${HOME}/.aura_vault" 2>/dev/null || true
+rm -f "/run/user/$(id -u)/aura_auth.token" 2>/dev/null || true
 
-# Update desktop & icon databases
+# 4. Update desktop & icon databases
 if command -v update-desktop-database &>/dev/null; then
     update-desktop-database "${HOME}/.local/share/applications" &>/dev/null || true
 fi

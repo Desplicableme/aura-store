@@ -1,56 +1,36 @@
 #!/bin/bash
-# GUI AskPass helper for Aura Package Hub with Lifetime Credential Support
-# Prompts for password once, then stores in vault so it never asks again in entire life!
+# =============================================================================
+# Aura Package Hub - GUI AskPass Helper
+# =============================================================================
+# Invoked by sudo (SUDO_ASKPASS) when package operations require authentication.
+# Never persists or stores administrator passwords on disk or volatile memory.
 
-VAULT_FILE="$HOME/.local/share/aura/.aura_vault"
-CACHE_FILE="/run/user/$(id -u)/aura_auth.token"
-
-# 1. If permanent lifetime vault exists, return immediately (Never ask again!)
-if [ -f "$VAULT_FILE" ]; then
-    PASS=$(cat "$VAULT_FILE" 2>/dev/null)
-    if [ -n "$PASS" ]; then
-        echo "$PASS"
-        exit 0
-    fi
-fi
-
-# 2. If valid session cached credentials exist, return immediately
-if [ -f "$CACHE_FILE" ]; then
-    PASS=$(cat "$CACHE_FILE" 2>/dev/null)
-    if [ -n "$PASS" ]; then
-        echo "$PASS"
-        exit 0
-    fi
-fi
-
-# 3. Prompt user via Zenity (macOS/GNOME style password dialog)
 PROMPT_TITLE="Aura Package Hub Authentication"
-PROMPT_TEXT="Enter your administrator password to authenticate Aura.\n(This will be saved to your secure local vault so you won't be asked again):"
+PROMPT_TEXT="Enter your administrator password to authenticate Aura:"
 PASS=""
 
+# Clean up any legacy plaintext vault or session token if found
+VAULT_FILE="$HOME/.local/share/aura/.aura_vault"
+CACHE_FILE="/run/user/$(id -u)/aura_auth.token"
+rm -f "$VAULT_FILE" "$CACHE_FILE" 2>/dev/null || true
+
+# Support common Linux desktop GUI password prompts
 if command -v zenity >/dev/null 2>&1; then
     PASS=$(zenity --password --title="$PROMPT_TITLE" --text="$PROMPT_TEXT" 2>/dev/null)
 elif command -v kdialog >/dev/null 2>&1; then
     PASS=$(kdialog --password "Enter Administrator Password for Aura" 2>/dev/null)
+elif command -v rofi >/dev/null 2>&1; then
+    PASS=$(rofi -dmenu -password -p "Admin Password" -lines 0 2>/dev/null)
+elif command -v wofi >/dev/null 2>&1; then
+    PASS=$(wofi --password --dmenu --prompt "Admin Password" 2>/dev/null)
+elif command -v pinentry >/dev/null 2>&1; then
+    PASS=$(echo "GETPIN" | pinentry 2>/dev/null | grep -E '^D ' | sed 's/^D //')
 fi
 
-# 4. If password was entered, save to session cache AND lifetime vault
 if [ -n "$PASS" ]; then
-    (umask 077 && echo "$PASS" > "$CACHE_FILE")
-    chmod 600 "$CACHE_FILE" 2>/dev/null
-    
-    mkdir -p "$(dirname "$VAULT_FILE")"
-    (umask 077 && echo "$PASS" > "$VAULT_FILE")
-    chmod 600 "$VAULT_FILE" 2>/dev/null
-    
-    # Attempt to install sudoers rule in background if possible so password is never needed
-    (
-        echo "$PASS" | sudo -S sh -c 'echo "'"$USER"' ALL=(ALL) NOPASSWD: /usr/bin/pacman, /usr/bin/paru" > /etc/sudoers.d/99-aura-pacman && chmod 0440 /etc/sudoers.d/99-aura-pacman' >/dev/null 2>&1
-    ) &
-    
     echo "$PASS"
     exit 0
 else
-    # User cancelled dialog
+    # User cancelled or no graphical prompter available
     exit 1
 fi

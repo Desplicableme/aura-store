@@ -49,4 +49,5 @@ capture_all.py
 /test_*.py
 !tests/
 !tests/**
+tests/**/__pycache__/
 scratch/

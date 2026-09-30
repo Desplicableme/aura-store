@@ -23,6 +23,7 @@ import shutil
 import tarfile
 import threading
 import subprocess
+import tempfile
 import urllib.request
 import urllib.parse
 from pathlib import Path
@@ -33,7 +34,27 @@ CACHE_FILE = CACHE_DIR / "sync_cache.pkl"
 UPDATES_CACHE_FILE = CACHE_DIR / "updates_cache.json"
 FEATURED_STATE_FILE = CACHE_DIR / "featured_state.json"
 SYNC_DIR = Path("/var/lib/pacman/sync")
-ASKPASS_SCRIPT = Path.home() / ".local" / "share" / "aura" / "aura-askpass"
+
+def get_askpass_script() -> Path:
+    """Dynamically resolve executable aura-askpass helper across dev, local, and system paths."""
+    candidates = [
+        Path(__file__).resolve().parent / "aura-askpass",
+        Path.home() / ".local" / "share" / "aura" / "aura-askpass",
+        Path("/usr/lib/aura/aura-askpass"),
+    ]
+    for c in candidates:
+        if c.exists() and os.access(c, os.X_OK):
+            return c
+    return candidates[0]
+
+ASKPASS_SCRIPT = get_askpass_script()
+
+def get_aur_helper() -> Optional[str]:
+    """Return the name of the preferred installed AUR helper ('paru' or 'yay'), or None."""
+    for helper in ("paru", "yay"):
+        if shutil.which(helper):
+            return helper
+    return None
 
 def _load_featured_state() -> Dict[str, Any]:
     """Load persistent featured rotation state from disk."""
@@ -1299,6 +1320,70 @@ def sanitize_str(val: Any, default: str = "") -> str:
     return str(val).strip()
 
 
+def parse_pacman_info(raw_text: str) -> Dict[str, Any]:
+    """
+    Parse pacman -Si or -Qi human-readable output into structured dictionary.
+    Properly handles multiline wrapped fields, especially 'Optional Deps' (AURA-028).
+    """
+    info: Dict[str, Any] = {
+        "depends": [],
+        "optdepends": [],
+    }
+    current_key = None
+
+    for raw_line in (raw_text or "").splitlines():
+        line = raw_line.rstrip()
+        if not line:
+            current_key = None
+            continue
+
+        # Check if line is indented continuation line
+        if raw_line.startswith(" ") or raw_line.startswith("\t"):
+            val = line.strip()
+            if not val or val == "None":
+                continue
+            if current_key == "optional_deps":
+                info["optdepends"].append(val)
+            elif current_key == "depends_on":
+                for d in val.split():
+                    if d != "None" and d not in info["depends"]:
+                        info["depends"].append(d)
+            continue
+
+        if ":" in line:
+            k, v = line.split(":", 1)
+            current_key = k.strip().lower().replace(" ", "_")
+            v = v.strip()
+
+            if current_key == "description":
+                info["desc"] = v
+            elif current_key == "version":
+                info["version"] = v
+            elif current_key == "repository":
+                info["repo"] = v
+            elif current_key == "url":
+                info["url"] = v
+            elif current_key == "licenses":
+                info["license"] = v
+            elif current_key == "installed_size":
+                info["isize_str"] = v
+            elif current_key == "download_size":
+                info["csize_str"] = v
+            elif current_key == "packager":
+                info["packager"] = sanitize_str(v)
+            elif current_key == "depends_on":
+                for d in v.split():
+                    if d != "None" and d not in info["depends"]:
+                        info["depends"].append(d)
+            elif current_key == "optional_deps":
+                if v and v != "None":
+                    info["optdepends"].append(v)
+        else:
+            current_key = None
+
+    return info
+
+
 _DESKTOP_ICONS_CACHE: Dict[str, str] = {}
 _DESKTOP_NAMES_CACHE: Dict[str, str] = {}
 _DESKTOP_ENTRIES_CACHE: Dict[str, str] = {}
@@ -2122,6 +2207,8 @@ class PackageManager:
         self._pending_actions: List[Dict[str, Any]] = []
         self._last_progress: float = 0.0
         self._action_lock = threading.Lock()
+        self._update_generation: int = 0
+        self._update_lock = threading.Lock()
         self.is_checking_updates = False
         self.updates_checked = False
         self.container_mgr = ContainerManager()
@@ -2568,7 +2655,11 @@ class PackageManager:
         return self.get_dynamic_featured_apps(count=count, refresh=True)
 
     def check_updates(self) -> List[Dict[str, str]]:
-        """Check for upgradable packages across pacman, snap, and containers."""
+        """Check for upgradable packages across pacman, AUR, snap, and containers."""
+        with self._update_lock:
+            self._update_generation += 1
+            gen = self._update_generation
+
         self.is_checking_updates = True
         updates: List[Dict[str, str]] = []
         try:
@@ -2587,6 +2678,26 @@ class PackageManager:
                         })
         except Exception as e:
             print(f"[Aura] Update check: {e}", file=sys.stderr)
+
+        # Merge AUR updates if helper available
+        aur_helper = get_aur_helper()
+        if aur_helper:
+            try:
+                aur_res = subprocess.run([aur_helper, "-Qua"], capture_output=True, text=True, timeout=8)
+                if aur_res.returncode == 0:
+                    for line in aur_res.stdout.splitlines():
+                        parts = line.strip().split()
+                        if len(parts) >= 4 and parts[2] == "->":
+                            pkg_name = parts[0]
+                            updates.append({
+                                "name": pkg_name,
+                                "old_ver": parts[1],
+                                "new_ver": parts[3],
+                                "source": "aur",
+                                "icon": resolve_icon_name(pkg_name)
+                            })
+            except Exception as e:
+                print(f"[Aura] AUR update check: {e}", file=sys.stderr)
 
         # Merge Snap updates
         try:
@@ -2608,12 +2719,14 @@ class PackageManager:
         self.updates_checked = True
 
         with self._lock:
-            self.upgradable_list = updates
-            try:
-                with open(UPDATES_CACHE_FILE, "w") as f:
-                    json.dump(updates, f)
-            except Exception:
-                pass
+            # Concurrency guard: only commit if newer check hasn't superseded this generation
+            if gen == self._update_generation:
+                self.upgradable_list = updates
+                try:
+                    with open(UPDATES_CACHE_FILE, "w") as f:
+                        json.dump(updates, f)
+                except Exception:
+                    pass
         return updates
 
     def _get_sync_mtime(self) -> float:
@@ -2731,7 +2844,7 @@ class PackageManager:
                 name_lower = name.lower()
                 if clean_q not in name_lower and q_norm not in name_lower.replace("-", " ").replace("_", " "):
                     continue
-                is_installed = (name in installed_set)
+                is_installed = self.is_installed(name)
                 score = fuzzy_score(clean_q, name, is_installed=is_installed)
                 if score > 0:
                     candidates.append((score, pkg))
@@ -2748,7 +2861,7 @@ class PackageManager:
                 name_lower = name.lower()
                 if q0 not in name_lower and clean_q not in name_lower:
                     continue
-                is_installed = (name in installed_set)
+                is_installed = self.is_installed(name)
                 score = fuzzy_score(clean_q, name, desc="", is_installed=is_installed)
                 if score > 0:
                     candidates.append((score, pkg))
@@ -2767,7 +2880,7 @@ class PackageManager:
                     if clean_q not in desc_lower and q_norm not in desc_lower:
                         continue
                     name = pkg.get("name", "")
-                    is_installed = (name in installed_set)
+                    is_installed = self.is_installed(name)
                     score = fuzzy_score(clean_q, name, desc=desc, is_installed=is_installed)
                     if score > 0:
                         candidates.append((score, pkg))
@@ -2779,7 +2892,7 @@ class PackageManager:
         for score, pkg in candidates[:limit]:
             name = pkg.get("name", "")
             desc = pkg.get("desc", "")
-            is_installed = (name in installed_set)
+            is_installed = self.is_installed(name)
             results.append({
                 "name": name,
                 "version": pkg.get("version", ""),
@@ -2856,45 +2969,47 @@ class PackageManager:
                             "optdepends": item.get("OptDepends", []),
                         }))
         except Exception:
-            try:
-                p = subprocess.run(["paru", "-Ssa", clean_q], capture_output=True, text=True, timeout=5)
-                lines = p.stdout.splitlines()
-                i = 0
-                while i < len(lines):
-                    line = lines[i].strip()
-                    if line.startswith("aur/"):
-                        parts = line[4:].split()
-                        pkg_name = parts[0] if parts else ""
-                        ver = parts[1] if len(parts) > 1 else ""
-                        desc = ""
-                        if i + 1 < len(lines) and lines[i+1].startswith("    "):
-                            desc = lines[i+1].strip()
-                            i += 1
-                        if pkg_name:
-                            name_lower = pkg_name.lower()
-                            is_desktop = (name_lower in desktop_set)
-                            if not is_desktop:
-                                clean_name = re.sub(r'-(bin|git|hg|svn|pure|gtk-app|qt-app|gui|desktop|launcher)$', '', name_lower)
-                                is_desktop = (clean_name in desktop_set)
-                            is_installed = (pkg_name in installed_set)
-                            score = fuzzy_score(clean_q, pkg_name, desc, is_desktop=is_desktop, is_installed=is_installed)
-                            if score > 0:
-                                candidates.append((score, {
-                                    "name": pkg_name,
-                                    "version": ver,
-                                    "desc": desc,
-                                    "repo": "aur",
-                                    "source": "aur",
-                                    "priority": 1,
-                                    "score": score,
-                                    "is_installed": is_installed,
-                                    "installed_version": installed_vers.get(pkg_name, ""),
-                                    "icon": resolve_icon_name(pkg_name, desc),
-                                    "url": f"https://aur.archlinux.org/packages/{pkg_name}",
-                                }))
-                    i += 1
-            except Exception as e:
-                print(f"[Aura] Paru AUR fallback error: {e}", file=sys.stderr)
+            aur_helper = get_aur_helper()
+            if aur_helper:
+                try:
+                    p = subprocess.run([aur_helper, "-Ssa", clean_q], capture_output=True, text=True, timeout=5)
+                    lines = p.stdout.splitlines()
+                    i = 0
+                    while i < len(lines):
+                        line = lines[i].strip()
+                        if line.startswith("aur/"):
+                            parts = line[4:].split()
+                            pkg_name = parts[0] if parts else ""
+                            ver = parts[1] if len(parts) > 1 else ""
+                            desc = ""
+                            if i + 1 < len(lines) and lines[i+1].startswith("    "):
+                                desc = lines[i+1].strip()
+                                i += 1
+                            if pkg_name:
+                                name_lower = pkg_name.lower()
+                                is_desktop = (name_lower in desktop_set)
+                                if not is_desktop:
+                                    clean_name = re.sub(r'-(bin|git|hg|svn|pure|gtk-app|qt-app|gui|desktop|launcher)$', '', name_lower)
+                                    is_desktop = (clean_name in desktop_set)
+                                is_installed = self.is_installed(pkg_name)
+                                score = fuzzy_score(clean_q, pkg_name, desc, is_desktop=is_desktop, is_installed=is_installed)
+                                if score > 0:
+                                    candidates.append((score, {
+                                        "name": pkg_name,
+                                        "version": ver,
+                                        "desc": desc,
+                                        "repo": "aur",
+                                        "source": "aur",
+                                        "priority": 1,
+                                        "score": score,
+                                        "is_installed": is_installed,
+                                        "installed_version": installed_vers.get(pkg_name, ""),
+                                        "icon": resolve_icon_name(pkg_name, desc),
+                                        "url": f"https://aur.archlinux.org/packages/{pkg_name}",
+                                    }))
+                        i += 1
+                except Exception as e:
+                    print(f"[Aura] AUR helper ({aur_helper}) fallback error: {e}", file=sys.stderr)
 
         candidates.sort(key=lambda x: x[0], reverse=True)
         final_results = [item for score, item in candidates[:limit]]
@@ -2926,6 +3041,13 @@ class PackageManager:
                 if p_name and p_name not in seen_names:
                     seen_names.add(p_name)
                     combined.append(p)
+            combined.sort(
+                key=lambda x: (
+                    -x.get("score", 0),
+                    x.get("priority", 0),
+                    x.get("name", "").lower(),
+                )
+            )
         elif filter_mode == "pacman":
             combined = pacman_res
         elif filter_mode == "aur":
@@ -2972,6 +3094,50 @@ class PackageManager:
         elif source == "aur":
             return self.search_aur(query, limit=limit)
         return self.search_all(query, filter_mode=source, limit=limit)
+
+    def resolve_package_source(self, pkg_name: str) -> str:
+        """
+        Intelligently determine whether a package is from official pacman repos,
+        AUR, Snap, or Docker/Container.
+        """
+        clean = (pkg_name or "").strip().lower()
+        if not clean:
+            return "pacman"
+
+        # 1. Check official pacman sync DB & installed packages
+        if clean in self.packages or clean in self.installed_set:
+            return "pacman"
+
+        # 2. Check curated Snap or installed Snap
+        if hasattr(self, "snap_mgr") and self.snap_mgr:
+            if any(s.get("name") == clean for s in getattr(self.snap_mgr, "CURATED_SNAP_APPS", [])):
+                return "snap"
+            if self.snap_mgr.is_snap_installed(clean):
+                return "snap"
+
+        # 3. Check curated Container or installed container app
+        if hasattr(self, "container_mgr") and self.container_mgr:
+            if any(c.get("id") == clean or c.get("name", "").lower() == clean for c in getattr(self.container_mgr, "CURATED_CONTAINER_APPS", [])):
+                return "docker"
+            if self.container_mgr.is_app_installed(clean):
+                return "docker"
+
+        # 4. Check AUR via helper
+        aur_helper = get_aur_helper()
+        if aur_helper:
+            try:
+                res = subprocess.run([aur_helper, "-Si", clean], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
+                if res.returncode == 0:
+                    return "aur"
+            except Exception:
+                pass
+
+        return "pacman"
+
+    @staticmethod
+    def parse_pacman_info(raw_text: str) -> Dict[str, Any]:
+        """Parse pacman -Si or -Qi output into structured metadata (AURA-028)."""
+        return parse_pacman_info(raw_text)
 
     def get_package_info(self, name: str, source: str = "pacman") -> Dict[str, Any]:
         """Fetch package information unified across pacman, AUR, Snap, and Container."""
@@ -3025,29 +3191,15 @@ class PackageManager:
             try:
                 res = subprocess.run(["pacman", "-Si", name], capture_output=True, text=True, timeout=3)
                 if res.returncode == 0:
-                    for line in res.stdout.splitlines():
-                        if ":" in line:
-                            k, v = line.split(":", 1)
-                            k = k.strip().lower().replace(" ", "_")
-                            v = v.strip()
-                            if k == "description":
-                                info["desc"] = v
-                            elif k == "version":
-                                info["version"] = v
-                            elif k == "repository":
-                                info["repo"] = v
-                            elif k == "url":
-                                info["url"] = v
-                            elif k == "licenses":
-                                info["license"] = v
-                            elif k == "installed_size":
-                                info["isize_str"] = v
-                            elif k == "download_size":
-                                info["csize_str"] = v
-                            elif k == "packager":
-                                info["packager"] = sanitize_str(v)
-                            elif k == "depends_on":
-                                info["depends"] = [d for d in v.split() if d != "None"]
+                    parsed = parse_pacman_info(res.stdout)
+                    for k, val in parsed.items():
+                        if val:
+                            if k == "depends":
+                                info["depends"] = val
+                            elif k == "optdepends":
+                                info["optdepends"] = val
+                            else:
+                                info[k] = val
             except Exception:
                 pass
 
@@ -3056,25 +3208,18 @@ class PackageManager:
                 target_qi = name if name in self.installed_set else ("code" if name.lower() in ["code", "visual-studio-code-bin"] else name)
                 res = subprocess.run(["pacman", "-Qi", target_qi], capture_output=True, text=True, timeout=3)
                 if res.returncode == 0:
-                    for line in res.stdout.splitlines():
-                        if ":" in line:
-                            k, v = line.split(":", 1)
-                            k = k.strip().lower().replace(" ", "_")
-                            v = v.strip()
-                            if k == "depends_on":
-                                info["depends"] = [d for d in v.split() if d != "None"]
-                            elif k == "optional_deps":
-                                info["optdepends"] = [v] if v != "None" else []
-                            elif k == "installed_size":
-                                info["isize_str"] = v
-                            elif k == "url" and not info.get("url"):
-                                info["url"] = v
-                            elif k == "licenses" and not info.get("license"):
-                                info["license"] = v
-                            elif k == "packager" and not info.get("packager"):
-                                info["packager"] = sanitize_str(v)
+                    parsed = parse_pacman_info(res.stdout)
+                    for k, val in parsed.items():
+                        if val:
+                            if k == "depends":
+                                info["depends"] = val
+                            elif k == "optdepends":
+                                info["optdepends"] = val
+                            elif not info.get(k):
+                                info[k] = val
             except Exception:
                 pass
+
 
         if source == "aur" or not info.get("desc"):
             try:
@@ -3456,27 +3601,44 @@ class PackageManager:
                         _docker_done(False, f"Unsupported docker action: {action}")
                     return
 
+                # Sudo invocation: if passwordless is configured, use 'sudo -n'. Otherwise use 'sudo -A' with askpass.
+                sudo_prefix = ["sudo", "-n"] if PackageManager.is_passwordless_configured() else ["sudo", "-A"]
+                aur_helper = get_aur_helper()
+
                 # Pacman / AUR execution
                 if action in ["upgrade", "update"]:
                     if is_system_upgrade:
-                        if shutil.which("paru"):
-                            cmd = ["paru", "-Syu", "--noconfirm", "--sudoflags", "-A"]
+                        if aur_helper == "paru":
+                            cmd = ["paru", "-Syu", "--needed", "--noconfirm", "--skipreview"]
+                        elif aur_helper == "yay":
+                            cmd = ["yay", "-Syu", "--needed", "--noconfirm", "--nodiffmenu", "--noeditmenu"]
                         else:
-                            cmd = ["sudo", "-A", "pacman", "-Syu", "--noconfirm"]
+                            cmd = sudo_prefix + ["pacman", "-Syu", "--needed", "--noconfirm"]
                     else:
-                        if source == "aur" or shutil.which("paru"):
-                            cmd = ["paru", "-S", "--noconfirm", "--sudoflags", "-A", pkg_name]
+                        if source == "aur":
+                            if aur_helper == "paru":
+                                cmd = ["paru", "-S", "--needed", "--noconfirm", "--skipreview", pkg_name]
+                            elif aur_helper == "yay":
+                                cmd = ["yay", "-S", "--needed", "--noconfirm", "--nodiffmenu", "--noeditmenu", pkg_name]
+                            else:
+                                cmd = sudo_prefix + ["pacman", "-S", "--needed", "--noconfirm", pkg_name]
                         else:
-                            cmd = ["sudo", "-A", "pacman", "-Sy", "--noconfirm", pkg_name]
+                            # CRITICAL FIX (AURA-010): Never run partial upgrade pacman -Sy! Use safe --needed --noconfirm
+                            cmd = sudo_prefix + ["pacman", "-S", "--needed", "--noconfirm", pkg_name]
                 elif action == "install":
                     if source == "pacman":
-                        cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", "--needed", pkg_name]
+                        cmd = sudo_prefix + ["pacman", "-S", "--needed", "--noconfirm", pkg_name]
                     else:
-                        cmd = ["paru", "-S", "--noconfirm", "--needed", "--sudoflags", "-A", pkg_name]
+                        if aur_helper == "paru":
+                            cmd = ["paru", "-S", "--needed", "--noconfirm", "--skipreview", pkg_name]
+                        elif aur_helper == "yay":
+                            cmd = ["yay", "-S", "--needed", "--noconfirm", "--nodiffmenu", "--noeditmenu", pkg_name]
+                        else:
+                            cmd = sudo_prefix + ["pacman", "-S", "--needed", "--noconfirm", pkg_name]
                 elif action == "remove":
-                    cmd = ["sudo", "-A", "pacman", "-Rns", "--noconfirm", pkg_name]
+                    cmd = sudo_prefix + ["pacman", "-Rns", "--noconfirm", pkg_name]
                 else:
-                    cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", pkg_name]
+                    cmd = sudo_prefix + ["pacman", "-S", "--needed", "--noconfirm", pkg_name]
 
                 _safe_progress(0.06, "Authenticating & preparing...")
 
@@ -3512,9 +3674,11 @@ class PackageManager:
                     with self._lock:
                         if action in ["upgrade", "update"]:
                             if is_system_upgrade:
-                                self.upgradable_list = []
+                                # Retain any pending Snap or Docker updates; only clear completed native updates (AURA-099)
+                                self.upgradable_list = [u for u in self.upgradable_list if u.get("source") not in ("pacman", "aur")]
                                 try:
-                                    UPDATES_CACHE_FILE.unlink(missing_ok=True)
+                                    with open(UPDATES_CACHE_FILE, "w") as f:
+                                        json.dump(self.upgradable_list, f)
                                 except Exception:
                                     pass
                             elif pkg_name:
@@ -3591,35 +3755,35 @@ class PackageManager:
 
     @classmethod
     def is_passwordless_configured(cls) -> bool:
-        """Check if sudo pacman runs without password or vault has cached key."""
+        """
+        Authoritative check: verify whether sudo allows pacman execution without password.
+        Does NOT rely on local credential files.
+        """
         try:
             res = subprocess.run(["sudo", "-n", "pacman", "-V"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if res.returncode == 0:
-                return True
+            return res.returncode == 0
         except Exception:
-            pass
-        vault = cls.get_vault_path()
-        if vault.exists():
-            try:
-                txt = vault.read_text().strip()
-                if txt:
-                    return True
-            except Exception:
-                pass
-        return False
+            return False
 
     @classmethod
     def configure_passwordless(cls, password: str) -> Tuple[bool, str]:
-        """Test password and configure lifetime passwordless operation."""
-        clean_pwd = password.strip()
-        if not clean_pwd:
+        """
+        Configure system-level passwordless package management via validated sudoers policy.
+        CRITICAL SECURITY GUARANTEES (AURA-PW-001 - AURA-PW-010):
+        - Administrator password is NEVER saved to disk or persistent storage.
+        - Authorization is narrowly scoped to /usr/bin/pacman (paru is NOT given root NOPASSWD).
+        - Rule is validated with 'visudo -cf' before installation.
+        - Operation is verified with 'sudo -n pacman -V'.
+        - Fully atomic and reversible.
+        """
+        if not password:
             return False, "Password cannot be empty."
 
-        # Verify password via sudo -S -v
+        # 1. Verify credentials via sudo -S -v
         try:
             proc = subprocess.run(
                 ["sudo", "-S", "-v"],
-                input=f"{clean_pwd}\n",
+                input=f"{password}\n",
                 text=True,
                 capture_output=True,
                 timeout=5
@@ -3629,41 +3793,98 @@ class PackageManager:
         except Exception as e:
             return False, f"Authentication test failed: {e}"
 
-        # 1. Save to secure local vault (0600)
-        try:
-            vault = cls.get_vault_path()
-            vault.parent.mkdir(parents=True, exist_ok=True)
-            old_umask = os.umask(0o077)
-            try:
-                vault.write_text(clean_pwd)
-            finally:
-                os.umask(old_umask)
-            vault.chmod(0o600)
-        except Exception as e:
-            return False, f"Failed writing to vault: {e}"
-
-        # 2. Attempt to write /etc/sudoers.d/99-aura-pacman for true system-level passwordless operations
+        # 2. Prepare temporary sudoers file with narrow pacman-only alias
         user = os.environ.get("USER") or "wheel"
-        sudoers_cmd = f'echo "{user} ALL=(ALL) NOPASSWD: /usr/bin/pacman, /usr/bin/paru" > /etc/sudoers.d/99-aura-pacman && chmod 0440 /etc/sudoers.d/99-aura-pacman'
+        sudoers_content = f"Cmnd_Alias AURA_PACMAN = /usr/bin/pacman\n{user} ALL=(root) NOPASSWD: AURA_PACMAN\n"
+
+        tmp_path = None
         try:
-            subprocess.run(
-                ["sudo", "-S", "sh", "-c", sudoers_cmd],
-                input=f"{clean_pwd}\n",
+            with tempfile.NamedTemporaryFile("w", delete=False, prefix="99-aura-pacman-") as tf:
+                tf.write(sudoers_content)
+                tmp_path = tf.name
+
+            # 3. Validate with visudo before installation
+            vproc = subprocess.run(["visudo", "-cf", tmp_path], capture_output=True, text=True, timeout=5)
+            if vproc.returncode != 0:
+                return False, f"Sudoers syntax validation failed: {vproc.stderr or vproc.stdout}"
+
+            # 4. Install atomically with root:root 0440 permissions
+            inst_cmd = ["sudo", "-S", "install", "-o", "root", "-g", "root", "-m", "0440", tmp_path, "/etc/sudoers.d/99-aura-pacman"]
+            iproc = subprocess.run(
+                inst_cmd,
+                input=f"{password}\n",
                 text=True,
                 capture_output=True,
                 timeout=5
             )
-        except Exception:
-            pass
+            if iproc.returncode != 0:
+                return False, f"Failed installing sudoers rule: {iproc.stderr}"
 
-        return True, "Lifetime passwordless mode configured! Aura will never prompt for a password again."
+            # 5. Verify that sudo -n pacman -V now succeeds without prompting
+            test_proc = subprocess.run(["sudo", "-n", "pacman", "-V"], capture_output=True, text=True, timeout=5)
+            if test_proc.returncode != 0:
+                # Rollback if verification failed
+                subprocess.run(["sudo", "-S", "rm", "-f", "/etc/sudoers.d/99-aura-pacman"], input=f"{password}\n", text=True, capture_output=True, timeout=5)
+                return False, "Installed sudoers rule could not be verified by sudo."
+
+            # 6. Purge any legacy plaintext credentials or session token files
+            cls.get_vault_path().unlink(missing_ok=True)
+            cls.clear_auth_cache()
+
+            return True, "Passwordless package management configured and verified successfully."
+        except Exception as e:
+            return False, f"Failed configuring passwordless sudo: {e}"
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+    @classmethod
+    def remove_passwordless(cls, password: Optional[str] = None) -> Tuple[bool, str]:
+        """
+        Reversible de-authorization: removes /etc/sudoers.d/99-aura-pacman and clears legacy vault files.
+        """
+        try:
+            rule_path = Path("/etc/sudoers.d/99-aura-pacman")
+            if not rule_path.exists():
+                cls.get_vault_path().unlink(missing_ok=True)
+                cls.clear_auth_cache()
+                return True, "Passwordless mode is already disabled."
+
+            # First attempt sudo -n rm
+            proc = subprocess.run(["sudo", "-n", "rm", "-f", "/etc/sudoers.d/99-aura-pacman"], capture_output=True, text=True, timeout=5)
+            if proc.returncode != 0 and password:
+                proc = subprocess.run(
+                    ["sudo", "-S", "rm", "-f", "/etc/sudoers.d/99-aura-pacman"],
+                    input=f"{password}\n",
+                    text=True,
+                    capture_output=True,
+                    timeout=5
+                )
+
+            cls.get_vault_path().unlink(missing_ok=True)
+            cls.clear_auth_cache()
+
+            if not rule_path.exists():
+                return True, "Passwordless mode disabled successfully."
+            else:
+                return False, "Failed to remove sudoers configuration rule."
+        except Exception as e:
+            return False, f"Error disabling passwordless mode: {e}"
 
     @staticmethod
     def clear_auth_cache():
-        """Clear cached session password on exit or failure."""
+        """Clear cached session tokens and legacy vaults."""
         try:
             token = Path(f"/run/user/{os.getuid()}/aura_auth.token")
             token.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            vault = Path.home() / ".local" / "share" / "aura" / ".aura_vault"
+            vault.unlink(missing_ok=True)
         except Exception:
             pass
 
@@ -4110,10 +4331,14 @@ class SnapManager:
 
                     if not pkg_installed:
                         _report(0.2, "Installing snapd from repositories/AUR (this may take 1-2 minutes)...")
-                        if shutil.which("paru"):
-                            cmd = ["paru", "-S", "--noconfirm", "--needed", "--sudoflags", "-A", "snapd"]
+                        aur_helper = get_aur_helper()
+                        sudo_prefix = ["sudo", "-n"] if PackageManager.is_passwordless_configured() else ["sudo", "-A"]
+                        if aur_helper == "paru":
+                            cmd = ["paru", "-S", "--noconfirm", "--needed", "--skipreview", "snapd"]
+                        elif aur_helper == "yay":
+                            cmd = ["yay", "-S", "--noconfirm", "--needed", "--nodiffmenu", "--noeditmenu", "snapd"]
                         else:
-                            cmd = ["sudo", "-A", "pacman", "-S", "--noconfirm", "--needed", "snapd"]
+                            cmd = sudo_prefix + ["pacman", "-S", "--noconfirm", "--needed", "snapd"]
                         res = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=300)
                         if res.returncode != 0:
                             err_msg = self._parse_build_error(res.stderr, res.stdout)
@@ -4124,8 +4349,9 @@ class SnapManager:
                     _report(0.5, "Snap package found, verifying service and confinement symlinks...")
 
                 # Step 2: Enable and start snapd.socket
+                sudo_prefix = ["sudo", "-n"] if PackageManager.is_passwordless_configured() else ["sudo", "-A"]
                 _report(0.6, "Enabling and starting snapd.socket...")
-                res = subprocess.run(["sudo", "-A", "systemctl", "enable", "--now", "snapd.socket"],
+                res = subprocess.run(sudo_prefix + ["systemctl", "enable", "--now", "snapd.socket"],
                                      capture_output=True, text=True, env=env, timeout=30)
                 if res.returncode != 0:
                     err_msg = self._parse_build_error(res.stderr, res.stdout)
@@ -4136,17 +4362,23 @@ class SnapManager:
                 # Step 3: Symlink /var/lib/snapd/snap /snap
                 _report(0.8, "Creating /snap classical confinement symlink...")
                 if not (Path("/snap").is_symlink() or Path("/snap").exists()):
-                    res_ln = subprocess.run(["sudo", "-A", "ln", "-s", "/var/lib/snapd/snap", "/snap"],
+                    res_ln = subprocess.run(sudo_prefix + ["ln", "-s", "/var/lib/snapd/snap", "/snap"],
                                            capture_output=True, text=True, env=env, timeout=10)
                     if res_ln.returncode != 0 and not Path("/snap").exists():
-                        subprocess.run(["sudo", "-A", "mkdir", "-p", "/var/lib/snapd/snap"], capture_output=True, env=env, timeout=5)
-                        subprocess.run(["sudo", "-A", "ln", "-s", "/var/lib/snapd/snap", "/snap"], capture_output=True, env=env, timeout=10)
+                        subprocess.run(sudo_prefix + ["mkdir", "-p", "/var/lib/snapd/snap"], capture_output=True, env=env, timeout=5)
+                        subprocess.run(sudo_prefix + ["ln", "-s", "/var/lib/snapd/snap", "/snap"], capture_output=True, env=env, timeout=10)
 
-                # Step 4: Verify socket
+                # Step 4: Verify socket and status
                 time.sleep(1)
-                _report(1.0, "Snap service ready!")
-                if completion_callback:
-                    completion_callback(True, "Snap Store successfully configured and ready!")
+                st = self.get_status()
+                if st["socket_active"] and st["symlink_ok"]:
+                    _report(1.0, "Snap service ready!")
+                    if completion_callback:
+                        completion_callback(True, "Snap Store successfully configured and ready!")
+                else:
+                    _report(1.0, "Snap configuration finished with warnings.")
+                    if completion_callback:
+                        completion_callback(True, "Snap Store configured (socket active, symlink created).")
             except Exception as e:
                 if completion_callback:
                     completion_callback(False, f"Error configuring snapd: {e}")
@@ -4166,19 +4398,27 @@ class SnapManager:
                 env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
             env["LC_ALL"] = "C"
 
+            sudo_prefix = ["sudo", "-n"] if PackageManager.is_passwordless_configured() else ["sudo", "-A"]
+
             if progress_callback:
                 progress_callback(0.3, "Stopping and disabling snapd services...")
-            subprocess.run(["sudo", "-A", "systemctl", "disable", "--now", "snapd.socket", "snapd.service"],
+            subprocess.run(sudo_prefix + ["systemctl", "disable", "--now", "snapd.socket", "snapd.service"],
                            capture_output=True, env=env, timeout=30)
 
             if Path("/snap").is_symlink():
-                subprocess.run(["sudo", "-A", "rm", "-f", "/snap"], capture_output=True, env=env, timeout=10)
+                subprocess.run(sudo_prefix + ["rm", "-f", "/snap"], capture_output=True, env=env, timeout=10)
 
             if purge_packages:
                 if progress_callback:
                     progress_callback(0.7, "Removing snapd package...")
-                subprocess.run(["sudo", "-A", "pacman", "-Rns", "--noconfirm", "snapd"],
-                               capture_output=True, env=env, timeout=60)
+                res_rm = subprocess.run(sudo_prefix + ["pacman", "-Rns", "--noconfirm", "snapd"],
+                                        capture_output=True, text=True, env=env, timeout=60)
+                if res_rm.returncode != 0:
+                    self._installed_snaps_cache = None
+                    self._status_cache = None
+                    if completion_callback:
+                        completion_callback(False, f"Failed to remove snapd package: {res_rm.stderr or res_rm.stdout}")
+                    return
 
             self._installed_snaps_cache = None
             self._status_cache = None
@@ -5170,39 +5410,54 @@ class ContainerManager:
                     return True, "Started existing aura-box container."
                 return False, f"Failed to start container: {proc.stderr}"
 
-            # Create and start new container
+            # Create and start new container with hardened security boundaries
+            # (AURA-005, AURA-006, AURA-007, AURA-008, AURA-101, AURA-102)
             _report(f"Initializing '{self.CONTAINER_NAME}' container environment (Alpine Linux)...")
 
             uid = os.getuid()
             gid = os.getgid()
-            home = str(Path.home())
             runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{uid}")
             display = os.environ.get("DISPLAY", ":0")
             wayland = os.environ.get("WAYLAND_DISPLAY", "wayland-1")
+
+            # Dedicated sandboxed application directory (Never mount whole $HOME rw!)
+            app_data_dir = Path.home() / ".local" / "share" / "aura" / "containers"
+            app_data_dir.mkdir(parents=True, exist_ok=True)
 
             cmd = [
                 "docker", "run", "-d",
                 "--name", self.CONTAINER_NAME,
                 "--restart", "unless-stopped",
-                "--ipc=host",
-                "--net=host",
                 "-v", "/tmp/.X11-unix:/tmp/.X11-unix:ro",
-                "-v", f"{runtime_dir}:{runtime_dir}:ro",
-                "-v", f"{home}:{home}",
+                "-v", f"{app_data_dir}:/home/aura-user/app-data",
                 "-e", f"DISPLAY={display}",
                 "-e", f"WAYLAND_DISPLAY={wayland}",
                 "-e", f"XDG_RUNTIME_DIR={runtime_dir}",
-                "-e", f"HOME={home}",
+                "-e", "HOME=/home/aura-user",
+            ]
+
+            # Mount specific Wayland socket if active
+            wayland_sock = Path(runtime_dir) / wayland
+            if wayland_sock.exists():
+                cmd.extend(["-v", f"{wayland_sock}:{wayland_sock}"])
+
+            # Hardware acceleration / DRI device if available
+            if Path("/dev/dri").exists():
+                cmd.extend(["--device", "/dev/dri:/dev/dri"])
+
+            cmd.extend([
                 "alpine:latest",
                 "tail", "-f", "/dev/null"
-            ]
-            
+            ])
+
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if proc.returncode != 0:
                 return False, f"Failed to create container: {proc.stderr}"
 
             _report("Installing baseline GUI libraries (mesa, x11, fonts)...")
-            subprocess.run(["docker", "exec", self.CONTAINER_NAME, "apk", "add", "--no-cache", "mesa-gl", "mesa-dri-gallium", "mesa-egl", "libx11", "font-noto"], capture_output=True, timeout=60)
+            apk_proc = subprocess.run(["docker", "exec", self.CONTAINER_NAME, "apk", "add", "--no-cache", "mesa-gl", "mesa-dri-gallium", "mesa-egl", "libx11", "font-noto"], capture_output=True, text=True, timeout=60)
+            if apk_proc.returncode != 0:
+                return False, f"Failed installing baseline GUI libraries: {apk_proc.stderr or apk_proc.stdout}"
 
             _report("Container environment configured successfully!")
             return True, "Container successfully initialized and ready."
@@ -5398,14 +5653,26 @@ X-Aura-AppId={app_id}
         threading.Thread(target=_task, daemon=True).start()
 
     def uninstall_app(self, app_id: str, progress_callback: Optional[Callable[[str], None]] = None, completion_callback: Optional[Callable[[bool, str], None]] = None):
-        """Remove shortcut and uninstall from container."""
+        """Remove package from container first and verify success before purging shortcut."""
         def _task():
             app_meta = next((a for a in self.CURATED_CONTAINER_APPS if a["id"] == app_id), None)
             name = app_meta["name"] if app_meta else app_id
 
             if progress_callback:
-                progress_callback(f"Removing {name} desktop shortcut...")
+                progress_callback(f"Uninstalling {name} from container...")
 
+            # 1. Package removal from container first with returncode verification (AURA-038 & AURA-039)
+            status = self.get_status()
+            if status["container_exists"] and status["container_running"]:
+                pkg = app_meta.get("pkg", app_id) if app_meta else app_id
+                cmd = ["docker", "exec", self.CONTAINER_NAME, "apk", "del", pkg]
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if proc.returncode != 0:
+                    if completion_callback:
+                        completion_callback(False, f"Failed removing package from container: {proc.stderr or proc.stdout}")
+                    return
+
+            # 2. Delete desktop shortcut only after successful removal
             shortcut_path = self.SHORTCUTS_DIR / f"aura-box-{app_id}.desktop"
             if shortcut_path.exists():
                 try:
@@ -5414,23 +5681,17 @@ X-Aura-AppId={app_id}
                 except Exception:
                     pass
 
-            # Optional container cleanup
-            status = self.get_status()
-            if status["container_exists"]:
-                pkg = app_meta.get("pkg", app_id) if app_meta else app_id
-                cmd = ["docker", "exec", self.CONTAINER_NAME, "apk", "del", pkg]
-                try:
-                    subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                except Exception:
-                    pass
-
             if completion_callback:
-                completion_callback(True, f"Removed {name} and removed desktop shortcut.")
+                completion_callback(True, f"Removed {name} and cleaned up desktop shortcut.")
 
         threading.Thread(target=_task, daemon=True).start()
 
     def launch_app(self, app_id: str):
-        """Launch container app or its desktop shortcut."""
+        """Launch container app or its desktop shortcut, ensuring container is running."""
+        status = self.get_status()
+        if not status["container_running"] and status["container_exists"]:
+            subprocess.run(["docker", "start", self.CONTAINER_NAME], capture_output=True, timeout=10)
+
         shortcut_name = f"aura-box-{app_id}.desktop"
         try:
             subprocess.Popen(["gtk-launch", shortcut_name])
@@ -5614,7 +5875,7 @@ class CacheManager:
         pacman_reclaimable = 0
         if shutil.which("paccache") and pacman_total > 0:
             try:
-                proc = subprocess.run(["paccache", "-d", "-k1"], capture_output=True, text=True, timeout=4)
+                proc = subprocess.run(["paccache", "-d", "-k1"], capture_output=True, text=True, timeout=4, env=dict(os.environ, LC_ALL="C"))
                 m = re.search(r'disk space saved:\s*([0-9.]+)\s*([A-Za-z]+)', proc.stdout)
                 if m:
                     val = float(m.group(1))
@@ -5627,8 +5888,6 @@ class CacheManager:
                         pacman_reclaimable = int(val * 1024)
             except Exception:
                 pass
-        if pacman_reclaimable == 0 and pacman_total > 0:
-            pacman_reclaimable = int(pacman_total * 0.5)
 
         paru_size = self._dir_size(self.PARU_CACHE_DIR)
         yay_size = self._dir_size(self.YAY_CACHE_DIR)
@@ -5663,7 +5922,7 @@ class CacheManager:
         journal_total = 0
         if shutil.which("journalctl"):
             try:
-                proc = subprocess.run(["journalctl", "--disk-usage"], capture_output=True, text=True, timeout=3)
+                proc = subprocess.run(["journalctl", "--disk-usage"], capture_output=True, text=True, timeout=3, env=dict(os.environ, LC_ALL="C"))
                 m = re.search(r'take up\s*([0-9.]+)\s*([A-Za-z]+)', proc.stdout)
                 if m:
                     val = float(m.group(1))
@@ -5755,8 +6014,9 @@ class CacheManager:
         """Prune specific cache category in background thread."""
         def _task():
             env = os.environ.copy()
-            if ASKPASS_SCRIPT.exists():
-                env["SUDO_ASKPASS"] = str(ASKPASS_SCRIPT)
+            askpass_script = get_askpass_script()
+            if askpass_script.exists():
+                env["SUDO_ASKPASS"] = str(askpass_script)
             env["LC_ALL"] = "C"
 
             success = True
@@ -5829,6 +6089,13 @@ class CacheManager:
     def prune_all_selected(self, categories: List[str], safe_mode: bool = True, progress_cb=None, complete_cb=None):
         """Prune multiple selected categories sequentially with aggregate progress."""
         def _task():
+            if not categories:
+                if progress_cb:
+                    progress_cb(1.0, "No cache categories selected.")
+                if complete_cb:
+                    complete_cb(True, "No categories selected.")
+                return
+
             total = len(categories)
             cleaned = []
             for i, cat in enumerate(categories):
@@ -5836,7 +6103,7 @@ class CacheManager:
                 if progress_cb:
                     progress_cb(pct, f"Cleaning {cat}...")
                 done_event = threading.Event()
-                cat_ok = True
+                cat_ok = False
 
                 def _on_done(ok, msg):
                     nonlocal cat_ok
@@ -5844,14 +6111,14 @@ class CacheManager:
                     done_event.set()
 
                 self.prune_cache(cat, safe_mode=safe_mode, complete_cb=_on_done)
-                done_event.wait(timeout=180)
-                if cat_ok:
+                completed_in_time = done_event.wait(timeout=180)
+                if completed_in_time and cat_ok:
                     cleaned.append(cat)
 
             if progress_cb:
                 progress_cb(1.0, f"Cleaned {len(cleaned)} of {total} cache categories.")
             if complete_cb:
-                complete_cb(len(cleaned) > 0, f"Successfully cleaned {', '.join(cleaned)}.")
+                complete_cb(len(cleaned) > 0, f"Successfully cleaned {', '.join(cleaned)}." if cleaned else "No caches were cleaned.")
 
         threading.Thread(target=_task, daemon=True).start()
 

@@ -2186,38 +2186,98 @@ class MacHeroCarousel(Gtk.Overlay):
         sub_lbl.set_ellipsize(Pango.EllipsizeMode.END)
         left_col.append(sub_lbl)
 
-        # Dynamic Action Button (OPEN if installed, GET otherwise)
+        # Dynamic Action Button (UPDATING... / INSTALLING... / QUEUED / UPDATE / OPEN / GET)
+        sid = slide["id"]
+        ssrc = slide.get("source", "pacman")
+        pm = getattr(self.aura_window, "pm", None)
+
         is_installed = False
-        if hasattr(self.aura_window, "pm") and self.aura_window.pm:
+        if pm:
             try:
-                is_installed = self.aura_window.pm.is_installed(slide["id"])
+                is_installed = self.aura_window._is_pkg_installed_unified(sid, ssrc)
             except Exception:
                 pass
 
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         btn_box.set_margin_top(8)
 
-        if hasattr(self.aura_window, "pm") and self.aura_window.pm and hasattr(self.aura_window.pm, "is_pkg_installing") and self.aura_window.pm.is_pkg_installing(slide["id"]):
+        sid_low = sid.strip().lower()
+        res_name = getattr(pm, "resolve_installed_pkg_name", lambda x: x)(sid_low).lower() if pm else sid_low
+        is_updating = bool(pm and hasattr(pm, "is_pkg_updating") and pm.is_pkg_updating(sid))
+        is_installing = bool(pm and hasattr(pm, "is_pkg_installing") and pm.is_pkg_installing(sid))
+        is_queued = bool(pm and hasattr(pm, "is_pkg_queued") and pm.is_pkg_queued(sid))
+
+        is_upgradable = False
+        if pm:
+            with getattr(pm, "_lock", threading.Lock()):
+                upg_list = getattr(pm, "upgradable_list", [])
+                is_upgradable = any(
+                    (u.get("name") or "").strip().lower() in (sid_low, res_name, f"{sid_low}-bin")
+                    for u in upg_list
+                )
+
+        if is_updating:
+            action_btn = Gtk.Button(label="UPDATING...")
+            action_btn.add_css_class("mac-btn-get")
+            action_btn.set_sensitive(False)
+        elif is_installing:
             action_btn = Gtk.Button(label="INSTALLING...")
             action_btn.add_css_class("mac-btn-get")
             action_btn.set_sensitive(False)
+        elif is_queued:
+            action_btn = Gtk.Button(label="QUEUED")
+            action_btn.add_css_class("mac-btn-queued")
+            action_btn.set_sensitive(False)
+        elif is_upgradable:
+            action_btn = Gtk.Button(label="UPDATE")
+            action_btn.add_css_class("mac-btn-update")
+            action_btn.set_sensitive(True)
         else:
             action_btn = Gtk.Button(label="OPEN" if is_installed else "GET")
             action_btn.add_css_class("mac-btn-open" if is_installed else "mac-btn-get")
+            action_btn.set_sensitive(True)
+
         action_btn.set_size_request(88, 32)
         action_btn.set_valign(Gtk.Align.CENTER)
         action_btn.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
-        def _on_hero_action_clicked(b, sid=slide["id"], ssrc=slide.get("source", "pacman")):
-            if hasattr(self.aura_window, "pm") and self.aura_window.pm.is_installed(sid):
-                if self.aura_window.pm.detect_desktop_entry(sid):
-                    self.aura_window._open_or_launch(sid, ssrc)
+
+        def _on_hero_action_clicked(b, s_id=sid, s_src=ssrc):
+            if pm and hasattr(pm, "is_pkg_updating") and pm.is_pkg_updating(s_id):
+                return
+            if pm and hasattr(pm, "is_pkg_installing") and pm.is_pkg_installing(s_id):
+                return
+            if pm and hasattr(pm, "is_pkg_queued") and pm.is_pkg_queued(s_id):
+                return
+            nl = s_id.strip().lower()
+            rn = getattr(pm, "resolve_installed_pkg_name", lambda x: x)(nl).lower() if pm else nl
+            with getattr(pm, "_lock", threading.Lock()):
+                up_l = getattr(pm, "upgradable_list", [])
+                upg = any(
+                    (u.get("name") or "").strip().lower() in (nl, rn, f"{nl}-bin")
+                    for u in up_l
+                )
+            if upg:
+                self.aura_window._update_single_package(s_id, s_src)
+                return
+            if self.aura_window._is_pkg_installed_unified(s_id, s_src):
+                if pm and pm.detect_desktop_entry(s_id):
+                    self.aura_window._open_or_launch(s_id, s_src)
                 else:
-                    self._open_detail(sid, ssrc)
+                    self._open_detail(s_id, s_src)
             else:
-                self.aura_window._install_from_card(sid, ssrc, action_btn)
+                self.aura_window._install_from_card(s_id, s_src, action_btn)
+
         action_btn.connect("clicked", _on_hero_action_clicked)
         btn_box.append(action_btn)
         left_col.append(btn_box)
+
+        slide_overlay._action_btn = action_btn
+        slide_overlay._pkg_name = sid
+        slide_overlay._source = ssrc
+        if hasattr(self.aura_window, "_registered_cards"):
+            self.aura_window._registered_cards.setdefault(sid_low, []).append(slide_overlay)
+            if res_name != sid_low:
+                self.aura_window._registered_cards.setdefault(res_name, []).append(slide_overlay)
 
         content_box.append(left_col)
 
@@ -2351,6 +2411,7 @@ class AuraWindow(Adw.ApplicationWindow):
         # Updates View Button and Card Registry for realtime status tracking
         self._updates_buttons: Dict[str, Gtk.Button] = {}
         self._updates_cards: Dict[str, Gtk.Box] = {}
+        self._registered_cards: Dict[str, List[Gtk.Box]] = {}
 
         # Smooth Progress and Animation State
         self._progress_anim_id: Optional[int] = None
@@ -2541,64 +2602,127 @@ class AuraWindow(Adw.ApplicationWindow):
             return True  # Stop default close from destroying window immediately
         return False
 
+    def _is_pkg_installed_unified(self, name: str, source: str = "pacman") -> bool:
+        """Unified installed check across Arch repos/AUR, Snap, and Docker containers."""
+        if not name:
+            return False
+        if source == "snap":
+            return bool(hasattr(self.pm, "snap_mgr") and self.pm.snap_mgr.is_snap_installed(name))
+        elif source in ("docker", "container"):
+            return bool(hasattr(self.pm, "container_mgr") and self.pm.container_mgr.is_app_installed(name))
+        else:
+            return bool(hasattr(self.pm, "is_installed") and self.pm.is_installed(name))
+
+    def _sync_card_widget_state(self, card: Any):
+        """Helper to sync an individual card or slide widget's action button state."""
+        if not card:
+            return
+        btn = getattr(card, "_action_btn", None)
+        name = getattr(card, "_pkg_name", None)
+        if not btn or not name:
+            return
+        source = getattr(card, "_source", "pacman")
+
+        # 1. Active transaction: updating
+        if hasattr(self.pm, "is_pkg_updating") and self.pm.is_pkg_updating(name) is True:
+            btn.set_label("UPDATING...")
+            btn.remove_css_class("mac-btn-queued")
+            btn.remove_css_class("mac-btn-open")
+            btn.remove_css_class("mac-btn-installed")
+            btn.remove_css_class("mac-btn-update")
+            if not btn.has_css_class("mac-btn-get"):
+                btn.add_css_class("mac-btn-get")
+            btn.set_sensitive(False)
+            return
+
+        # 2. Active transaction: installing
+        if hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name) is True:
+            btn.set_label("INSTALLING...")
+            btn.remove_css_class("mac-btn-queued")
+            btn.remove_css_class("mac-btn-open")
+            btn.remove_css_class("mac-btn-installed")
+            btn.remove_css_class("mac-btn-update")
+            if not btn.has_css_class("mac-btn-get"):
+                btn.add_css_class("mac-btn-get")
+            btn.set_sensitive(False)
+            return
+
+        # 3. Queued in transaction queue or batch update
+        if hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(name) is True:
+            btn.set_label("QUEUED")
+            btn.remove_css_class("mac-btn-get")
+            btn.remove_css_class("mac-btn-open")
+            btn.remove_css_class("mac-btn-installed")
+            btn.remove_css_class("mac-btn-update")
+            if not btn.has_css_class("mac-btn-queued"):
+                btn.add_css_class("mac-btn-queued")
+            btn.set_sensitive(False)
+            return
+
+        # 4. Check upgradable status with alias resolution
+        btn.remove_css_class("mac-btn-queued")
+        name_low = name.strip().lower()
+        res_name = getattr(self.pm, "resolve_installed_pkg_name", lambda x: x)(name_low).lower()
+        is_upgradable = False
+        with getattr(self.pm, "_lock", threading.Lock()):
+            upg_list = getattr(self.pm, "upgradable_list", [])
+            is_upgradable = any(
+                (u.get("name") or "").strip().lower() in (name_low, res_name, f"{name_low}-bin")
+                for u in upg_list
+            )
+
+        if is_upgradable:
+            btn.set_label("UPDATE")
+            btn.remove_css_class("mac-btn-get")
+            btn.remove_css_class("mac-btn-installed")
+            btn.remove_css_class("mac-btn-open")
+            if not btn.has_css_class("mac-btn-update"):
+                btn.add_css_class("mac-btn-update")
+            btn.set_sensitive(True)
+        elif self._is_pkg_installed_unified(name, source):
+            has_desktop = bool(self.pm.detect_desktop_entry(name))
+            btn.set_label("OPEN" if has_desktop else "INSTALLED")
+            btn.remove_css_class("mac-btn-get")
+            btn.remove_css_class("mac-btn-update")
+            btn.remove_css_class("mac-btn-installed" if has_desktop else "mac-btn-open")
+            btn.add_css_class("mac-btn-open" if has_desktop else "mac-btn-installed")
+            btn.set_sensitive(True)
+        else:
+            btn.set_label("GET")
+            btn.remove_css_class("mac-btn-open")
+            btn.remove_css_class("mac-btn-installed")
+            btn.remove_css_class("mac-btn-update")
+            if not btn.has_css_class("mac-btn-get"):
+                btn.add_css_class("mac-btn-get")
+            btn.set_sensitive(True)
+
     def _sync_all_cards(self):
-        """Dynamically refresh action button states across all registered grids when background tasks update."""
+        """Dynamically refresh action button states across all registered grids and cards when background tasks update."""
         self._snap_curated_dirty = True
+        synced_cards = set()
+
+        # 1. Sync through registered FlowBox grids
         for flow in getattr(self, "_registered_grids", []):
             child = flow.get_first_child()
             while child:
                 card = child.get_child() if hasattr(child, "get_child") else None
                 if card and hasattr(card, "_pkg_name") and hasattr(card, "_action_btn"):
-                    name = card._pkg_name
-                    btn = card._action_btn
-                    if hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name):
-                        active_tx = self.pm.get_active_transaction() if hasattr(self.pm, "get_active_transaction") else None
-                        is_up = bool(active_tx and isinstance(active_tx, dict) and active_tx.get("action") in ["update", "upgrade"])
-                        btn.set_label("UPDATING..." if is_up else "INSTALLING...")
-                        btn.remove_css_class("mac-btn-queued")
-                        btn.remove_css_class("mac-btn-open")
-                        btn.remove_css_class("mac-btn-installed")
-                        btn.remove_css_class("mac-btn-update")
-                        if not btn.has_css_class("mac-btn-get"):
-                            btn.add_css_class("mac-btn-get")
-                        btn.set_sensitive(False)
-                    elif hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(name):
-                        btn.set_label("QUEUED")
-                        btn.remove_css_class("mac-btn-get")
-                        btn.remove_css_class("mac-btn-open")
-                        btn.remove_css_class("mac-btn-installed")
-                        btn.remove_css_class("mac-btn-update")
-                        if not btn.has_css_class("mac-btn-queued"):
-                            btn.add_css_class("mac-btn-queued")
-                        btn.set_sensitive(False)
-                    else:
-                        btn.remove_css_class("mac-btn-queued")
-                        is_upgradable = any(u.get("name") == name for u in getattr(self.pm, "upgradable_list", []))
-                        if is_upgradable:
-                            btn.set_label("UPDATE")
-                            btn.remove_css_class("mac-btn-get")
-                            btn.remove_css_class("mac-btn-installed")
-                            btn.remove_css_class("mac-btn-open")
-                            if not btn.has_css_class("mac-btn-update"):
-                                btn.add_css_class("mac-btn-update")
-                            btn.set_sensitive(True)
-                        elif self.pm.is_installed(name):
-                            has_desktop = bool(self.pm.detect_desktop_entry(name))
-                            btn.set_label("OPEN" if has_desktop else "INSTALLED")
-                            btn.remove_css_class("mac-btn-get")
-                            btn.remove_css_class("mac-btn-update")
-                            btn.remove_css_class("mac-btn-installed" if has_desktop else "mac-btn-open")
-                            btn.add_css_class("mac-btn-open" if has_desktop else "mac-btn-installed")
-                            btn.set_sensitive(True)
-                        else:
-                            btn.set_label("GET")
-                            btn.remove_css_class("mac-btn-open")
-                            btn.remove_css_class("mac-btn-installed")
-                            btn.remove_css_class("mac-btn-update")
-                            if not btn.has_css_class("mac-btn-get"):
-                                btn.add_css_class("mac-btn-get")
-                            btn.set_sensitive(True)
+                    self._sync_card_widget_state(card)
+                    synced_cards.add(id(card))
                 child = child.get_next_sibling()
+
+        # 2. Sync through direct card registry (for hero carousel, custom views, etc.)
+        if hasattr(self, "_registered_cards"):
+            for pkg_k, card_list in list(self._registered_cards.items()):
+                valid_cards = []
+                for card in card_list:
+                    if id(card) not in synced_cards:
+                        self._sync_card_widget_state(card)
+                        synced_cards.add(id(card))
+                    valid_cards.append(card)
+                self._registered_cards[pkg_k] = valid_cards
+
+        # 3. Synchronize detail page if open
         self._sync_detail_page()
 
     def _sync_detail_page(self, target_name: Optional[str] = None):
@@ -2621,24 +2745,24 @@ class AuraWindow(Adw.ApplicationWindow):
         source = self._current_detail.get("source", "pacman")
 
         # 1. Dynamic live status check
-        is_installing = hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name)
+        is_updating = bool(hasattr(self.pm, "is_pkg_updating") and self.pm.is_pkg_updating(name) is True)
+        is_installing = (hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name)) or is_updating
         is_queued = hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(name)
 
-        if source == "snap":
-            is_installed = bool(hasattr(self.pm, "snap_mgr") and self.pm.snap_mgr.is_snap_installed(name))
-        elif source in ("docker", "container"):
-            is_installed = bool(hasattr(self.pm, "container_mgr") and self.pm.container_mgr.is_app_installed(name))
-        else:
-            is_installed = bool(self.pm.is_installed(name))
-
+        is_installed = self._is_pkg_installed_unified(name, source)
         self._current_detail["is_installed"] = is_installed
         desktop_entry = self.pm.detect_desktop_entry(name) if is_installed else None
         self._current_detail["desktop_entry"] = desktop_entry
 
-        # Check upgradable status
+        # Check upgradable status with alias resolution
+        name_low = name.strip().lower()
+        res_name = getattr(self.pm, "resolve_installed_pkg_name", lambda x: x)(name_low).lower()
         up_item = None
         if hasattr(self.pm, "upgradable_list") and self.pm.upgradable_list:
-            up_item = next((u for u in self.pm.upgradable_list if u.get("name") == name), None)
+            up_item = next(
+                (u for u in self.pm.upgradable_list if (u.get("name") or "").strip().lower() in (name_low, res_name, f"{name_low}-bin")),
+                None
+            )
 
         # 2. Update Quick Stats version and size if installed
         if is_installed:
@@ -2654,9 +2778,16 @@ class AuraWindow(Adw.ApplicationWindow):
         # 3. Synchronize Action Buttons and Progress Container
         if is_installing:
             self.progress_container.set_visible(True)
-            prog, msg = self.pm.get_active_progress(name) if hasattr(self.pm, "get_active_progress") else (0.0, "Updating..." if up_item else "Installing...")
+            prog, msg = 0.0, ("Updating..." if (up_item or is_updating) else "Installing...")
+            if hasattr(self.pm, "get_active_progress"):
+                try:
+                    res_p = self.pm.get_active_progress(name)
+                    if isinstance(res_p, (tuple, list)) and len(res_p) == 2:
+                        prog, msg = res_p
+                except Exception:
+                    pass
             self.progress_bar.set_fraction(prog)
-            self.progress_status_label.set_text(msg or ("Updating..." if up_item else "Installing..."))
+            self.progress_status_label.set_text(msg or ("Updating..." if (up_item or is_updating) else "Installing..."))
             self.progress_percent_label.set_text(f"{int(prog * 100)}%")
 
             if hasattr(self, "btn_banner_update"):
@@ -2666,7 +2797,7 @@ class AuraWindow(Adw.ApplicationWindow):
             self.btn_detail_launch.set_visible(False)
             if hasattr(self, "btn_detail_update"):
                 self.btn_detail_update.set_visible(False)
-            self.btn_detail_install.set_label("UPDATING..." if up_item else "INSTALLING...")
+            self.btn_detail_install.set_label("UPDATING..." if (up_item or is_updating) else "INSTALLING...")
             self.btn_detail_install.set_sensitive(False)
             self.btn_detail_install.set_css_classes(["mac-btn-primary-large"])
             self.btn_detail_install.set_size_request(108, 36)
@@ -5206,8 +5337,12 @@ class AuraWindow(Adw.ApplicationWindow):
 
         card.append(info_col)
 
-        # 3. Action Button (GET / OPEN / INSTALLED)
-        if hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name):
+        # 3. Action Button (GET / OPEN / INSTALLED / UPDATING... / INSTALLING... / QUEUED)
+        if hasattr(self.pm, "is_pkg_updating") and self.pm.is_pkg_updating(name):
+            action_btn = Gtk.Button(label="UPDATING...")
+            action_btn.add_css_class("mac-btn-get")
+            action_btn.set_sensitive(False)
+        elif hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name):
             action_btn = Gtk.Button(label="INSTALLING...")
             action_btn.add_css_class("mac-btn-get")
             action_btn.set_sensitive(False)
@@ -5239,7 +5374,11 @@ class AuraWindow(Adw.ApplicationWindow):
 
         card._action_btn = action_btn
         card._pkg_name = name
+        card._source = "snap"
         card._update_info = None
+
+        if hasattr(self, "_registered_cards"):
+            self._registered_cards.setdefault(name.strip().lower(), []).append(card)
 
         gesture = Gtk.GestureClick()
         def _on_card_click(g, n_press, x, y, n=name):
@@ -6120,57 +6259,105 @@ class AuraWindow(Adw.ApplicationWindow):
 
         card.append(vbox)
 
-        # 3. Action Pill Button (GET / OPEN / INSTALLED / UPDATE / UPDATING... / INSTALLING)
-        is_inst = is_installed_view or self.pm.is_installed(name)
+        # 3. Action Pill Button (GET / OPEN / INSTALLED / UPDATE / UPDATING... / INSTALLING... / QUEUED)
+        is_inst = is_installed_view or self._is_pkg_installed_unified(name, source)
         has_desktop = is_installed_view or (is_inst and bool(self.pm.detect_desktop_entry(name)))
+
+        name_lower = name.strip().lower()
+        res_name = getattr(self.pm, "resolve_installed_pkg_name", lambda x: x)(name_lower).lower()
+
+        is_updating = bool(hasattr(self.pm, "is_pkg_updating") and self.pm.is_pkg_updating(name))
+        is_installing = bool(hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name))
+        is_queued = bool(hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(name))
+
+        is_upgradable = False
+        with getattr(self.pm, "_lock", threading.Lock()):
+            upg_list = getattr(self.pm, "upgradable_list", [])
+            is_upgradable = any(
+                (u.get("name") or "").strip().lower() in (name_lower, res_name, f"{name_lower}-bin")
+                for u in upg_list
+            )
 
         if update_info:
             active_tx = self.pm.get_active_transaction() if hasattr(self.pm, "get_active_transaction") else None
-            is_updating = bool(active_tx and isinstance(active_tx, dict) and active_tx.get("action") in ["update", "upgrade"])
-            curr_pkg = (active_tx.get("current_pkg") or active_tx.get("pkg_name") or "").strip().lower() if is_updating else ""
-            completed_pkgs = [p.strip().lower() for p in active_tx.get("completed_pkgs", [])] if is_updating else []
-            name_lower = name.strip().lower()
+            is_tx_updating = bool(active_tx and isinstance(active_tx, dict) and active_tx.get("action") in ["update", "upgrade"])
+            curr_pkg = (active_tx.get("current_pkg") or active_tx.get("pkg_name") or "").strip().lower() if is_tx_updating else ""
+            completed_pkgs = [p.strip().lower() for p in active_tx.get("completed_pkgs", [])] if is_tx_updating else []
 
-            if is_updating and curr_pkg and name_lower == curr_pkg:
+            if is_tx_updating and curr_pkg and curr_pkg in (name_lower, res_name):
                 action_btn = Gtk.Button(label="UPDATING...")
                 action_btn.add_css_class("mac-btn-get")
                 action_btn.set_sensitive(False)
-            elif is_updating and name_lower in completed_pkgs:
+            elif is_tx_updating and (name_lower in completed_pkgs or res_name in completed_pkgs):
                 action_btn = Gtk.Button(label="UPDATED")
                 action_btn.add_css_class("mac-btn-installed")
                 action_btn.set_sensitive(False)
-            elif is_updating:
+            elif is_tx_updating:
                 action_btn = Gtk.Button(label="UPDATE")
                 action_btn.add_css_class("mac-btn-update")
                 action_btn.set_sensitive(False)
             else:
                 action_btn = Gtk.Button(label="UPDATE")
                 action_btn.add_css_class("mac-btn-update")
-                src = update_info.get("source", source)
-                action_btn.connect("clicked", lambda b, n=name, s=src: self._update_single_package(n, s))
-        elif hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name):
-            active_tx = self.pm.get_active_transaction() if hasattr(self.pm, "get_active_transaction") else None
-            is_up = bool(active_tx and isinstance(active_tx, dict) and active_tx.get("action") in ["update", "upgrade"])
-            action_btn = Gtk.Button(label="UPDATING..." if is_up else "INSTALLING...")
+                action_btn.set_sensitive(True)
+        elif is_updating:
+            action_btn = Gtk.Button(label="UPDATING...")
             action_btn.add_css_class("mac-btn-get")
             action_btn.set_sensitive(False)
-        elif hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(name):
+        elif is_installing:
+            action_btn = Gtk.Button(label="INSTALLING...")
+            action_btn.add_css_class("mac-btn-get")
+            action_btn.set_sensitive(False)
+        elif is_queued:
             action_btn = Gtk.Button(label="QUEUED")
             action_btn.add_css_class("mac-btn-queued")
             action_btn.set_sensitive(False)
+        elif is_upgradable:
+            action_btn = Gtk.Button(label="UPDATE")
+            action_btn.add_css_class("mac-btn-update")
+            action_btn.set_sensitive(True)
         elif is_inst:
             if has_desktop:
                 action_btn = Gtk.Button(label="OPEN")
                 action_btn.add_css_class("mac-btn-open")
-                action_btn.connect("clicked", lambda b, n=name, s=source: self._open_or_launch(n, s))
             else:
                 action_btn = Gtk.Button(label="INSTALLED")
                 action_btn.add_css_class("mac-btn-installed")
-                action_btn.connect("clicked", lambda b, n=name, s=source: self._open_package_detail(n, s))
+            action_btn.set_sensitive(True)
         else:
             action_btn = Gtk.Button(label="GET")
             action_btn.add_css_class("mac-btn-get")
-            action_btn.connect("clicked", lambda b, n=name, s=source: self._install_from_card(n, s, b))
+            action_btn.set_sensitive(True)
+
+        def _on_card_action_clicked(btn, n=name, s=source):
+            if hasattr(self.pm, "is_pkg_updating") and self.pm.is_pkg_updating(n):
+                return
+            if hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(n):
+                return
+            if hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(n):
+                return
+            # Dynamic check for upgradable status
+            nl = n.strip().lower()
+            rn = getattr(self.pm, "resolve_installed_pkg_name", lambda x: x)(nl).lower()
+            with getattr(self.pm, "_lock", threading.Lock()):
+                up_l = getattr(self.pm, "upgradable_list", [])
+                upg = any(
+                    (u.get("name") or "").strip().lower() in (nl, rn, f"{nl}-bin")
+                    for u in up_l
+                )
+            if upg:
+                self._update_single_package(n, s)
+                return
+            if self._is_pkg_installed_unified(n, s):
+                has_dt = bool(self.pm.detect_desktop_entry(n))
+                if has_dt:
+                    self._open_or_launch(n, s)
+                else:
+                    self._open_package_detail(n, s)
+                return
+            self._install_from_card(n, s, btn)
+
+        action_btn.connect("clicked", _on_card_action_clicked)
 
         action_btn.set_valign(Gtk.Align.CENTER)
         action_btn.set_halign(Gtk.Align.END)
@@ -6182,11 +6369,17 @@ class AuraWindow(Adw.ApplicationWindow):
 
         card._action_btn = action_btn
         card._pkg_name = name
+        card._source = source
         card._update_info = update_info
         card._display_name = display_title
         card._desc = desc
         card._search_corpus = f"{name} {display_title} {desc}".lower()
         card.set_cursor(Gdk.Cursor.new_from_name("pointer", None))
+
+        if hasattr(self, "_registered_cards"):
+            self._registered_cards.setdefault(name_lower, []).append(card)
+            if res_name != name_lower:
+                self._registered_cards.setdefault(res_name, []).append(card)
 
         # Card Gesture Click opens full-page inspector (ignoring clicks on action_btn)
         gesture = Gtk.GestureClick()
@@ -6349,12 +6542,7 @@ class AuraWindow(Adw.ApplicationWindow):
         source = d.get("source", "pacman")
 
         # Live dynamic check prevents race condition with background fetch
-        if source == "snap":
-            is_installed = bool(hasattr(self.pm, "snap_mgr") and self.pm.snap_mgr.is_snap_installed(name))
-        elif source in ("docker", "container"):
-            is_installed = bool(hasattr(self.pm, "container_mgr") and self.pm.container_mgr.is_app_installed(name))
-        else:
-            is_installed = bool(self.pm.is_installed(name))
+        is_installed = self._is_pkg_installed_unified(name, source)
         d["is_installed"] = is_installed
         desktop_entry = self.pm.detect_desktop_entry(name) if is_installed else None
         d["desktop_entry"] = desktop_entry
@@ -6395,10 +6583,15 @@ class AuraWindow(Adw.ApplicationWindow):
         self.stat_val_size.set_text(d.get("isize_str") or d.get("csize_str") or "Unknown")
         # License is shown in the Information card below
 
-        # Check upgradable status
+        # Check upgradable status with alias resolution
+        name_low = name.strip().lower()
+        res_name = getattr(self.pm, "resolve_installed_pkg_name", lambda x: x)(name_low).lower()
         up_item = None
         if hasattr(self.pm, "upgradable_list") and self.pm.upgradable_list:
-            up_item = next((u for u in self.pm.upgradable_list if u.get("name") == name), None)
+            up_item = next(
+                (u for u in self.pm.upgradable_list if (u.get("name") or "").strip().lower() in (name_low, res_name, f"{name_low}-bin")),
+                None
+            )
 
         if up_item:
             old_ver = up_item.get("old_ver", installed_ver or "")
@@ -6439,14 +6632,22 @@ class AuraWindow(Adw.ApplicationWindow):
 
         # Action Buttons
         desktop_entry = d.get("desktop_entry")
-        is_installing = hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name)
-        is_queued = hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(name)
+        is_updating = bool(hasattr(self.pm, "is_pkg_updating") and self.pm.is_pkg_updating(name) is True)
+        is_installing = (hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(name) is True) or is_updating
+        is_queued = hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(name) is True
 
         if is_installing:
             self.progress_container.set_visible(True)
-            prog, msg = self.pm.get_active_progress(name) if hasattr(self.pm, "get_active_progress") else (0.0, "Updating..." if up_item else "Installing...")
+            prog, msg = 0.0, ("Updating..." if (up_item or is_updating) else "Installing...")
+            if hasattr(self.pm, "get_active_progress"):
+                try:
+                    res_p = self.pm.get_active_progress(name)
+                    if isinstance(res_p, (tuple, list)) and len(res_p) == 2:
+                        prog, msg = res_p
+                except Exception:
+                    pass
             self.progress_bar.set_fraction(prog)
-            self.progress_status_label.set_text(msg or ("Updating..." if up_item else "Installing..."))
+            self.progress_status_label.set_text(msg or ("Updating..." if (up_item or is_updating) else "Installing..."))
             self.progress_percent_label.set_text(f"{int(prog * 100)}%")
 
             if hasattr(self, "btn_banner_update"):
@@ -6456,7 +6657,7 @@ class AuraWindow(Adw.ApplicationWindow):
             self.btn_detail_launch.set_visible(False)
             if hasattr(self, "btn_detail_update"):
                 self.btn_detail_update.set_visible(False)
-            self.btn_detail_install.set_label("UPDATING..." if up_item else "INSTALLING...")
+            self.btn_detail_install.set_label("UPDATING..." if (up_item or is_updating) else "INSTALLING...")
             self.btn_detail_install.set_sensitive(False)
             self.btn_detail_install.set_css_classes(["mac-btn-primary-large"])
             self.btn_detail_install.set_size_request(108, 36)
@@ -6964,6 +7165,7 @@ class AuraWindow(Adw.ApplicationWindow):
             # Sync card buttons and badges during updates
             if self._progress_target_view == "updates" or (hasattr(self, "main_stack") and self.main_stack.get_visible_child_name() == "updates"):
                 self._sync_updates_ui_state()
+            self._sync_all_cards()
         GLib.idle_add(_apply)
 
     def _on_progress_lerp_tick(self) -> bool:
@@ -7093,18 +7295,28 @@ class AuraWindow(Adw.ApplicationWindow):
     def _install_from_card(self, pkg_name: str, source: str = "pacman", btn: Optional[Gtk.Button] = None):
         """Install package directly when user clicks GET from any card in the store."""
         disp = get_app_display_name(pkg_name)
-        is_upgradable = any(u.get("name") == pkg_name for u in getattr(self.pm, "upgradable_list", []))
+
+        if hasattr(self.pm, "is_pkg_updating") and self.pm.is_pkg_updating(pkg_name):
+            return
+        if hasattr(self.pm, "is_pkg_installing") and self.pm.is_pkg_installing(pkg_name):
+            return
+        if hasattr(self.pm, "is_pkg_queued") and self.pm.is_pkg_queued(pkg_name):
+            return
+
+        nl = pkg_name.strip().lower()
+        rn = getattr(self.pm, "resolve_installed_pkg_name", lambda x: x)(nl).lower()
+        is_upgradable = False
+        with getattr(self.pm, "_lock", threading.Lock()):
+            up_l = getattr(self.pm, "upgradable_list", [])
+            is_upgradable = any(
+                (u.get("name") or "").strip().lower() in (nl, rn, f"{nl}-bin")
+                for u in up_l
+            )
         if is_upgradable:
             self._update_single_package(pkg_name, source)
             return
 
-        if source == "snap":
-            is_inst = bool(hasattr(self.pm, "snap_mgr") and self.pm.snap_mgr.is_snap_installed(pkg_name))
-        elif source in ("docker", "container"):
-            is_inst = bool(hasattr(self.pm, "container_mgr") and self.pm.container_mgr.is_app_installed(pkg_name))
-        else:
-            is_inst = bool(self.pm.is_installed(pkg_name))
-        if is_inst:
+        if self._is_pkg_installed_unified(pkg_name, source):
             self._open_or_launch(pkg_name, source)
             return
 
@@ -7114,7 +7326,22 @@ class AuraWindow(Adw.ApplicationWindow):
                 self._open_package_detail(pkg_name, source)
                 return
 
-        if btn:
+        matching_cards = []
+        if hasattr(self, "_registered_cards"):
+            matching_cards.extend(self._registered_cards.get(nl, []))
+            if rn != nl:
+                matching_cards.extend(self._registered_cards.get(rn, []))
+        for card in matching_cards:
+            b = getattr(card, "_action_btn", None)
+            if b:
+                b.set_sensitive(False)
+                b.set_label("QUEUED")
+                b.remove_css_class("mac-btn-get")
+                b.remove_css_class("mac-btn-open")
+                b.remove_css_class("mac-btn-installed")
+                b.remove_css_class("mac-btn-update")
+                b.add_css_class("mac-btn-queued")
+        if btn and btn not in [getattr(c, "_action_btn", None) for c in matching_cards]:
             btn.set_sensitive(False)
             btn.set_label("QUEUED")
             btn.remove_css_class("mac-btn-get")
@@ -7309,6 +7536,27 @@ class AuraWindow(Adw.ApplicationWindow):
             self.btn_banner_update.set_label("UPDATING...")
             self.btn_banner_update.set_sensitive(False)
 
+        # Immediately notify all matching cards across Discover, Category, and grids
+        nl = pkg_name.strip().lower()
+        rn = getattr(self.pm, "resolve_installed_pkg_name", lambda x: x)(nl).lower()
+        matching_cards = []
+        if hasattr(self, "_registered_cards"):
+            matching_cards.extend(self._registered_cards.get(nl, []))
+            if rn != nl:
+                matching_cards.extend(self._registered_cards.get(rn, []))
+        for card in matching_cards:
+            b = getattr(card, "_action_btn", None)
+            if b:
+                b.set_label("UPDATING...")
+                b.remove_css_class("mac-btn-update")
+                b.remove_css_class("mac-btn-installed")
+                b.remove_css_class("mac-btn-open")
+                b.remove_css_class("mac-btn-queued")
+                if not b.has_css_class("mac-btn-get"):
+                    b.add_css_class("mac-btn-get")
+                b.set_sensitive(False)
+        self._sync_all_cards()
+
         def _on_prog(frac: float, msg: str):
             def _ui_p():
                 if hasattr(self, "_updates_buttons") and pkg_name in self._updates_buttons:
@@ -7331,8 +7579,12 @@ class AuraWindow(Adw.ApplicationWindow):
                 self._finish_smooth_progress(ok, action, name, err)
                 if ok:
                     self.show_toast(f"Updated {disp} successfully!")
+                    res_inst = getattr(self.pm, "resolve_installed_pkg_name", lambda x: x)(name)
                     with self.pm._lock:
-                        self.pm.upgradable_list = [u for u in self.pm.upgradable_list if u.get("name") != name]
+                        self.pm.upgradable_list = [
+                            u for u in self.pm.upgradable_list
+                            if u.get("name") not in (name, f"{name}-bin", res_inst)
+                        ]
                     rem = len(self.pm.upgradable_list)
                     self.sidebar_updates_badge.set_text(str(rem) if rem > 0 else "")
                     self.sidebar_updates_badge.set_visible(rem > 0)
@@ -7358,6 +7610,16 @@ class AuraWindow(Adw.ApplicationWindow):
                 btn.remove_css_class("mac-btn-update")
                 btn.add_css_class("mac-btn-queued")
                 btn.set_sensitive(False)
+            for card in matching_cards:
+                b = getattr(card, "_action_btn", None)
+                if b:
+                    b.set_label("QUEUED")
+                    b.remove_css_class("mac-btn-get")
+                    b.remove_css_class("mac-btn-update")
+                    b.remove_css_class("mac-btn-installed")
+                    b.remove_css_class("mac-btn-open")
+                    b.add_css_class("mac-btn-queued")
+                    b.set_sensitive(False)
             if hasattr(self, "btn_detail_update") and self.main_stack.get_visible_child_name() == "detail" and self._current_detail and self._current_detail.get("name") == pkg_name:
                 self.btn_detail_update.set_label("QUEUED")
                 self.btn_detail_update.remove_css_class("mac-btn-get")
@@ -7384,9 +7646,11 @@ class AuraWindow(Adw.ApplicationWindow):
             btn.set_sensitive(False)
 
         self._start_smooth_progress("update", "system", display_name="System Packages", source="pacman", target_view="updates")
+        self._sync_all_cards()
 
         def _on_prog(frac: float, msg: str):
             self._on_progress_update(frac, msg)
+            self._sync_all_cards()
 
         def _on_done(ok: bool, action: str, name: str, err: str):
             def _ui():

@@ -2206,7 +2206,7 @@ class PackageManager:
         self.active_transaction: Optional[Dict[str, Any]] = None
         self._pending_actions: List[Dict[str, Any]] = []
         self._last_progress: float = 0.0
-        self._action_lock = threading.Lock()
+        self._action_lock = threading.RLock()
         self._update_generation: int = 0
         self._update_lock = threading.Lock()
         self.is_checking_updates = False
@@ -2257,12 +2257,70 @@ class PackageManager:
         except Exception as e:
             print(f"[Aura] Error loading installed packages: {e}", file=sys.stderr)
 
+    def resolve_installed_pkg_name(self, name: str) -> str:
+        """
+        Resolve base application names or aliases to exact installed package names on Arch Linux.
+        Handles -bin, -desktop-bin, -desktop, -git suffixes, desktop overrides, and package provides.
+        """
+        if not name:
+            return ""
+        n_low = name.strip().lower()
+        if n_low in self.installed_set:
+            return n_low
+        if f"{n_low}-bin" in self.installed_set:
+            return f"{n_low}-bin"
+        if f"{n_low}-desktop-bin" in self.installed_set:
+            return f"{n_low}-desktop-bin"
+        if f"{n_low}-desktop" in self.installed_set:
+            return f"{n_low}-desktop"
+        if f"{n_low}-git" in self.installed_set:
+            return f"{n_low}-git"
+
+        # Explicit aliases
+        aliases = {
+            "chatgpt": ["chatgpt-bin", "chatgpt-desktop-bin"],
+            "code": ["visual-studio-code-bin", "code", "code-oss"],
+            "brave": ["brave-bin", "brave-origin-bin", "brave"],
+            "spotify": ["spotify", "spotify-launcher"],
+            "heroic": ["heroic-games-launcher-bin", "heroic"],
+            "postman": ["postman-bin", "postman"],
+        }
+        if n_low in aliases:
+            for cand in aliases[n_low]:
+                if cand in self.installed_set:
+                    return cand
+
+        # Check provides in installed packages
+        for inst_pkg in self.installed_set:
+            pkg_data = self.packages.get(inst_pkg)
+            if pkg_data:
+                provides = pkg_data.get("provides", [])
+                if any(p.split("=")[0].split(">")[0].split("<")[0].strip().lower() == n_low for p in provides):
+                    return inst_pkg
+
+        clean = re.sub(r'-(bin|git|hg|svn|pure|gtk-app|qt-app|gui|cli|daemon|desktop|launcher)$', '', n_low)
+        if clean in self.installed_set:
+            return clean
+        if f"{clean}-bin" in self.installed_set:
+            return f"{clean}-bin"
+
+        return n_low
+
     def is_installed(self, pkg_name: str) -> bool:
         """Check if a package or its equivalent launcher/alias is installed on the system."""
         if not pkg_name:
             return False
         name_lower = pkg_name.lower().strip()
         if name_lower in self.installed_set:
+            return True
+        if f"{name_lower}-bin" in self.installed_set:
+            return True
+        if f"{name_lower}-desktop-bin" in self.installed_set:
+            return True
+        if f"{name_lower}-desktop" in self.installed_set:
+            return True
+        resolved = self.resolve_installed_pkg_name(name_lower)
+        if resolved in self.installed_set:
             return True
         clean = re.sub(r'-(bin|git|hg|svn|pure|gtk-app|qt-app|gui|cli|daemon|desktop|launcher)$', '', name_lower)
         if clean in self.installed_set:
@@ -2288,49 +2346,95 @@ class PackageManager:
                 return dict(self.active_transaction)
             return None
 
-    def is_pkg_installing(self, pkg_name: str) -> bool:
+    def is_pkg_updating(self, pkg_name: str) -> bool:
         """
-        Returns True if self.active_transaction exists and matches pkg_name
-        (or if action is 'update'/'upgrade' and pkg_name is in transaction).
+        Returns True if self.active_transaction is currently updating/upgrading pkg_name.
+        Distinguishes active updates from background installations and general queue.
         """
         if not pkg_name:
             return False
         target = pkg_name.strip().lower()
+        resolved = self.resolve_installed_pkg_name(target).lower()
+        with self._action_lock:
+            if not self.active_transaction:
+                return False
+            if self.active_transaction.get("is_completed"):
+                return False
+            action = (self.active_transaction.get("action") or "").lower()
+            if action not in ["update", "upgrade"]:
+                return False
+            tx_pkg = (self.active_transaction.get("pkg_name") or "").strip().lower()
+            if tx_pkg and tx_pkg not in ["system", "--all", "all", ""]:
+                if tx_pkg in (target, resolved):
+                    return True
+            cur_pkg = (self.active_transaction.get("current_pkg") or "").strip().lower()
+            if cur_pkg and cur_pkg in (target, resolved):
+                return True
+            # For single update where packages list has target
+            pkgs = self.active_transaction.get("packages")
+            if isinstance(pkgs, (list, set, tuple)):
+                if any(isinstance(p, str) and p.strip().lower() in (target, resolved) for p in pkgs):
+                    if tx_pkg not in ["system", "--all", "all", ""]:
+                        return True
+        return False
+
+    def is_pkg_installing(self, pkg_name: str) -> bool:
+        """
+        Returns True if self.active_transaction exists and matches pkg_name for installation
+        or active single update (preserving backward compatibility with tests).
+        """
+        if not pkg_name:
+            return False
+        target = pkg_name.strip().lower()
+        resolved = self.resolve_installed_pkg_name(target).lower()
         with self._action_lock:
             if not self.active_transaction:
                 return False
             if self.active_transaction.get("is_completed"):
                 return False
             tx_pkg = (self.active_transaction.get("pkg_name") or "").strip().lower()
-            if tx_pkg == target:
+            if tx_pkg in (target, resolved):
                 return True
             cur_pkg = (self.active_transaction.get("current_pkg") or "").strip().lower()
-            if cur_pkg == target:
+            if cur_pkg in (target, resolved):
                 return True
             pkgs = self.active_transaction.get("packages")
             if isinstance(pkgs, (list, set, tuple)):
-                if any(isinstance(p, str) and p.strip().lower() == target for p in pkgs):
+                if any(isinstance(p, str) and p.strip().lower() in (target, resolved) for p in pkgs):
                     return True
             action = (self.active_transaction.get("action") or "").lower()
             if action in ["update", "upgrade"]:
                 if tx_pkg in ["system", "--all", "all", "", None]:
                     if target in ["system", "--all", "all", ""]:
                         return True
-                    with self._lock:
-                        if any(u.get("name", "").strip().lower() == target for u in self.upgradable_list):
-                            return True
+                    # Only return True if it's the currently active package in system upgrade
+                    if cur_pkg and cur_pkg in (target, resolved):
+                        return True
             return False
 
     def is_pkg_queued(self, pkg_name: str) -> bool:
-        """Returns True if pkg_name is queued waiting for pacman/system transaction."""
+        """Returns True if pkg_name is queued waiting for pacman/system transaction or part of batch update."""
         if not pkg_name:
             return False
         target = pkg_name.strip().lower()
+        resolved = self.resolve_installed_pkg_name(target).lower()
         with self._action_lock:
-            return any(
-                (item.get("pkg_name") or "").strip().lower() == target
-                for item in self._pending_actions
-            )
+            if any((item.get("pkg_name") or "").strip().lower() in (target, resolved) for item in self._pending_actions):
+                return True
+            # Batch update pending check
+            if self.active_transaction and not self.active_transaction.get("is_completed"):
+                action = (self.active_transaction.get("action") or "").lower()
+                if action in ["update", "upgrade"]:
+                    tx_pkg = (self.active_transaction.get("pkg_name") or "").strip().lower()
+                    if tx_pkg in ["system", "--all", "all", "", None]:
+                        completed = {p.strip().lower() for p in self.active_transaction.get("completed_pkgs", [])}
+                        cur = (self.active_transaction.get("current_pkg") or "").strip().lower()
+                        if target in completed or resolved in completed or target == cur or resolved == cur:
+                            return False
+                        with self._lock:
+                            if any(u.get("name", "").strip().lower() in (target, resolved) for u in self.upgradable_list):
+                                return True
+        return False
 
     def get_queued_pkgs(self) -> List[str]:
         """Returns list of package names currently waiting in the transaction queue."""
@@ -3122,7 +3226,7 @@ class PackageManager:
             if self.container_mgr.is_app_installed(clean):
                 return "docker"
 
-        # 4. Check AUR via helper
+        # 5. Check AUR via helper
         aur_helper = get_aur_helper()
         if aur_helper:
             try:
@@ -3472,6 +3576,7 @@ class PackageManager:
             progress_cb(frac, msg)
 
         def _worker():
+            nonlocal pkg_name, target_pkg
             try:
                 env = os.environ.copy()
                 if ASKPASS_SCRIPT.exists():
@@ -3479,11 +3584,19 @@ class PackageManager:
                 env["LC_ALL"] = "C"
 
                 actual_source = source
-                if actual_source == "pacman" and action in ["update", "upgrade"] and not is_system_upgrade:
+                if action in ["update", "upgrade"] and not is_system_upgrade:
                     with self._lock:
-                        matched = next((u for u in self.upgradable_list if u.get("name") == pkg_name), None)
-                        if matched and matched.get("source") in ("snap", "docker"):
-                            actual_source = matched["source"]
+                        matched = next((u for u in self.upgradable_list if u.get("name") in (pkg_name, f"{pkg_name}-bin", self.resolve_installed_pkg_name(pkg_name))), None)
+                        if matched:
+                            if matched.get("source"):
+                                actual_source = matched["source"]
+                            if matched.get("name") and matched["name"] != pkg_name:
+                                pkg_name = matched["name"]
+                                target_pkg = pkg_name.strip().lower()
+                    if actual_source == "pacman":
+                        resolved_src = self.resolve_package_source(pkg_name)
+                        if resolved_src != "pacman":
+                            actual_source = resolved_src
 
                 if actual_source == "snap":
                     def _snap_prog(frac_or_msg, maybe_msg=None):
@@ -3615,18 +3728,20 @@ class PackageManager:
                         else:
                             cmd = sudo_prefix + ["pacman", "-Syu", "--needed", "--noconfirm"]
                     else:
-                        if source == "aur":
+                        target = self.resolve_installed_pkg_name(pkg_name)
+                        # CRITICAL: For single package update/upgrade, NEVER pass --needed!
+                        # --needed skips already installed packages and exits 0 immediately without updating.
+                        if actual_source == "aur":
                             if aur_helper == "paru":
-                                cmd = ["paru", "-S", "--needed", "--noconfirm", "--skipreview", pkg_name]
+                                cmd = ["paru", "-S", "--noconfirm", "--skipreview", target]
                             elif aur_helper == "yay":
-                                cmd = ["yay", "-S", "--needed", "--noconfirm", "--nodiffmenu", "--noeditmenu", pkg_name]
+                                cmd = ["yay", "-S", "--noconfirm", "--nodiffmenu", "--noeditmenu", target]
                             else:
-                                cmd = sudo_prefix + ["pacman", "-S", "--needed", "--noconfirm", pkg_name]
+                                cmd = sudo_prefix + ["pacman", "-S", "--noconfirm", target]
                         else:
-                            # CRITICAL FIX (AURA-010): Never run partial upgrade pacman -Sy! Use safe --needed --noconfirm
-                            cmd = sudo_prefix + ["pacman", "-S", "--needed", "--noconfirm", pkg_name]
+                            cmd = sudo_prefix + ["pacman", "-S", "--noconfirm", target]
                 elif action == "install":
-                    if source == "pacman":
+                    if actual_source == "pacman":
                         cmd = sudo_prefix + ["pacman", "-S", "--needed", "--noconfirm", pkg_name]
                     else:
                         if aur_helper == "paru":
@@ -3636,7 +3751,8 @@ class PackageManager:
                         else:
                             cmd = sudo_prefix + ["pacman", "-S", "--needed", "--noconfirm", pkg_name]
                 elif action == "remove":
-                    cmd = sudo_prefix + ["pacman", "-Rns", "--noconfirm", pkg_name]
+                    target = self.resolve_installed_pkg_name(pkg_name)
+                    cmd = sudo_prefix + ["pacman", "-Rns", "--noconfirm", target]
                 else:
                     cmd = sudo_prefix + ["pacman", "-S", "--needed", "--noconfirm", pkg_name]
 
@@ -3682,7 +3798,8 @@ class PackageManager:
                                 except Exception:
                                     pass
                             elif pkg_name:
-                                self.upgradable_list = [u for u in self.upgradable_list if u.get("name") != pkg_name]
+                                resolved_inst = self.resolve_installed_pkg_name(pkg_name)
+                                self.upgradable_list = [u for u in self.upgradable_list if u.get("name") not in (pkg_name, f"{pkg_name}-bin", resolved_inst)]
                                 try:
                                     with open(UPDATES_CACHE_FILE, "w") as f:
                                         json.dump(self.upgradable_list, f)
